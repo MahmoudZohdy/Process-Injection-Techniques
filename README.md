@@ -2,18 +2,14 @@
 
 This is the C implementation of Diffrent Process Injection Technique.
 
-
-
-It's not smart with known File format(like PE,PDF, Docs,...) , it treats the file as raw data.
-
 ```
 Usage: Process_Injection_Techniques.exe
 
-This wil print the injection technique that is implemented
+## This wil print the injection technique that is implemented
 ```
 
 ```
-Technique that i will cover here:
+## Technique that i will cover here:
 [x] Inject Dll in remtote process using CreateRemoteThread API.
 [x] Inject Dll in remtote process using SetWindowsHookExW API.
 [x] Inject ShellCode in remtote process using CreateRemoteThread API.
