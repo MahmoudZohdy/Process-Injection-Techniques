@@ -256,6 +256,6 @@ DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* Executa
 		printf("Faile to Deattach From Process Error Code is 0x%x\n", GetLastError());
 		Status = -1;
 	}
-	Status = 0;
+	else Status = 0;
 	return Status;
 }
