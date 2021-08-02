@@ -12,7 +12,6 @@
 using namespace std;
 
 #pragma comment(lib, "Dbghelp.lib")
-//#pragma comment(lib, "ntdll")
 
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName);
@@ -255,6 +254,8 @@ DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* Executa
 	Status = DebugActiveProcessStop(PID);
 	if (!Status) {
 		printf("Faile to Deattach From Process Error Code is 0x%x\n", GetLastError());
+		Status = -1;
 	}
+	Status = 0;
 	return Status;
 }
