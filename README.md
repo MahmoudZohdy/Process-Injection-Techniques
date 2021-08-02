@@ -5,7 +5,7 @@ This is the C implementation of Diffrent Process Injection Technique.
 ```
 Usage: Process_Injection_Techniques.exe
 
-This wil print the injection technique that is implemented
+This wil print the injection technique that is implemented and how to use them
 ```
 
 ```
