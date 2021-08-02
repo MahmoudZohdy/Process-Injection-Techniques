@@ -9,7 +9,8 @@ This wil print the injection technique that is implemented and how to use them
 ```
 
 
-***Technique that i will cover here:***
+
+***Techniques that i will cover here:***
 
 [x] Inject Dll in remtote process using **CreateRemoteThread** API.
 
