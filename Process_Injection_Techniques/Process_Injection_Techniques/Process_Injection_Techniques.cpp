@@ -86,6 +86,16 @@ int wmain(int argc,WCHAR* argv[])
             printf("Injection Succeeded\n");
         }
         break;
+    
+    case 7:
+        Result = InjectUsingThreadExecutionHijacking(ProcessID, ShellCodePath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
 
     default:
         PrintUsage();

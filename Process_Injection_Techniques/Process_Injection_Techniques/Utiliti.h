@@ -47,7 +47,6 @@ void PrintUsage() {
     printf("Inject ShellCode in another process using CreateRemoteThread API\n");
     printf("Process_Injection_Techniques.exe 3 -p <PID> -s <ShellCode Path>\n\n");
 
-    //fix discription
     printf("Inject ShellCode in another process using QueueUserAPC API.\nNOTE: the shellcode should handle the fact it will run more that once (# of threads in the process in the time of injection)\n");
     printf("Process_Injection_Techniques.exe 4 -p <PID> -s <ShellCode Path Path>\n\n");
 
@@ -57,6 +56,9 @@ void PrintUsage() {
     printf("Inject ShellCode in another process using TLS CallBack Technique.\nNOTE: the executable that you try to inject should containg TLS Callback section.\nTODO: If the executble does not has TLS Section Create new one and edit PE header.\n");
     printf("You Can inject running process the TLS Callback will be trigered when new thread is created or when thread exits, or you can start application and make it run your TLS before its EntryPoint\n");
     printf("Process_Injection_Techniques.exe 6 {-p <PID> OR -n <Executable Path>} -s <ShellCode Path>\n\n");
+
+    printf("Inject ShellCode in another process using Thread execution hijacking\n");
+    printf("Process_Injection_Techniques.exe 7 -p <PID> -s <ShellCode Path>\n\n");
 }
 
 void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
@@ -118,6 +120,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         }
         ProcessID = _wtoi(argv[index]);
 
+        break;
+
+    case 7:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-p");
+        ProcessID = _wtoi(argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-s");
+        wcscpy(ShellCodePath, argv[index]);
         break;
 
     default:
