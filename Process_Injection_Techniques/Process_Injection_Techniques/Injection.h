@@ -267,8 +267,7 @@ DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName) {
 	DWORD Status = NULL;
 	LPVOID ShelCodeAddress = NULL;
 	DWORD BytesWritten;
-	BYTE ShellCode[] = { 0xAA,0xbb,0xcc,0x00 };
-	BYTE* ShellCode1 = NULL;//= ReadDataFromFile(ShellCodeFileName);
+	BYTE* ShellCode = ReadDataFromFile(ShellCodeFileName);
 	if (!ShellCode) {
 		return -1;
 	}
