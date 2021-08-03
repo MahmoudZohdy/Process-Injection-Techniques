@@ -11,6 +11,15 @@ int wmain(int argc,WCHAR* argv[])
     DWORD Result = 0;
     int InjectionType;
 
+    /*Result = InjectUsingThreadExecutionHijacking(_wtoi(argv[1]), NULL);
+    if (Result == -1) {
+        printf("Injection Failed\n");
+    }
+    else {
+        printf("Injection Succeeded\n");
+    }
+    return 0;*/
+
 	if (argc < 2) {
 		PrintUsage();
 		return 0;

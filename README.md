@@ -24,7 +24,7 @@ This wil print the injection technique that is implemented and how to use them
 
 [x] Inject ShellCode in remote process using **TLS CallBack** Technique.
 
-[ ] Inject using **Thread execution hijacking**.
+[x] Inject using **Thread execution hijacking**.
 
 [ ] Inject Dll in remtote process using **Reflective DLL injection**.
 
