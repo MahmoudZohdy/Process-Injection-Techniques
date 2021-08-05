@@ -5,7 +5,7 @@ This is the C implementation of Diffrent Process Injection Technique.
 ```
 Usage: Process_Injection_Techniques.exe
 
-This wil print the injection technique that is implemented and how to use them
+This wil print the injection techniques that is implemented and how to use them
 ```
 
 
@@ -47,5 +47,6 @@ This wil print the injection technique that is implemented and how to use them
 ```
 Process Hollowing:
 
-Crashes With Some 64bit process like System32\svchost.exe,... if you Know the issue please let me know (abdelaziz.zohdy@gmail.com).
+Crashes With Some 64bit process like System32\svchost.exe,... 
+if you Know the issue please let me know on abdelaziz.zohdy@gmail.com.
 ```
