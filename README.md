@@ -45,8 +45,7 @@ This wil print the injection techniques that is implemented and how to use them
 [ ] inject using **SHIMS**.
 
 ```
-Process Hollowing:
-
-Crashes With Some 64bit process like System32\svchost.exe,... 
+NOTE:
+In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
 if you Know the issue please let me know on abdelaziz.zohdy@gmail.com.
 ```
