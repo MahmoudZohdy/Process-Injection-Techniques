@@ -28,7 +28,7 @@ This wil print the injection technique that is implemented and how to use them
 
 [ ] Inject Dll in remtote process using **Reflective DLL injection**.
 
-[ ] inject using **Process Hollowing**.
+[x] inject using **Process Hollowing**.
 
 [ ] inject using **Process Doppelganging**.
 
@@ -43,3 +43,9 @@ This wil print the injection technique that is implemented and how to use them
 [ ] inject using using **AppCertDlls** Registry.
 
 [ ] inject using **SHIMS**.
+
+```
+Process Hollowing:
+
+Crashes With Some 64bit process like System32\svchost.exe,... if you Know the issue please let me know (abdelaziz.zohdy@gmail.com).
+```

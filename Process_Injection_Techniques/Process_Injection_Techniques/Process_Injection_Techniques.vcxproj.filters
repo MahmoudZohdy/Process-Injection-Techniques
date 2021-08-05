@@ -26,5 +26,8 @@
     <ClInclude Include="Injection.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Struct.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -10,17 +10,19 @@ int wmain(int argc,WCHAR* argv[])
 {
     DWORD Result = 0;
     int InjectionType;
-
-    /*Result = InjectUsingThreadExecutionHijacking(_wtoi(argv[1]), NULL);
+    /*PROCESS_INFO info;
+    StartExecutableAsSuspended(argv[1], &info, CREATE_SUSPENDED);
+    Result = InjectDllUsingCreateRemoteThread(info.PID, argv[2]);
     if (Result == -1) {
         printf("Injection Failed\n");
     }
     else {
         printf("Injection Succeeded\n");
     }
+    ResumeThread(info.MainThreadHandle);
     return 0;*/
 
-	if (argc < 2) {
+	if (argc < 3) {
 		PrintUsage();
 		return 0;
 	}
@@ -97,6 +99,15 @@ int wmain(int argc,WCHAR* argv[])
         }
         break;
 
+    case 8:
+        Result = InjectUsingProcessHollowing(ProcessName, SourceProcessName);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
     default:
         PrintUsage();
         break;

