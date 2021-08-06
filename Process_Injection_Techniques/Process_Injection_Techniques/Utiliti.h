@@ -80,6 +80,9 @@ void PrintUsage() {
     printf("Note:Will not work when Secure Boot is On\n");
     printf("Process_Injection_Techniques.exe 9 -d <DLL Full Path>\n\n");
 
+    printf("Execute your Process when the target process start, Will Work also as persistence technique\n");
+    printf("Process_Injection_Techniques.exe 10 -n <Target Process name> -d <Your Executable Path>\n\n");
+
 
 }
 
@@ -161,6 +164,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
     case 9:
         index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
         wcscpy(DLLPath, argv[index]);
+        break;
+    
+    case 10:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-n");
+        wcscpy(ProcessName, argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(SourceProcessName, argv[index]);
         break;
 
     default:

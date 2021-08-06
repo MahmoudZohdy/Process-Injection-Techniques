@@ -123,6 +123,16 @@ int wmain(int argc,WCHAR* argv[])
         }
         break;
 
+    case 10:
+        Result = InjectUsingImageFileExecutionOptions(ProcessName, SourceProcessName);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
     default:
         PrintUsage();
         break;
