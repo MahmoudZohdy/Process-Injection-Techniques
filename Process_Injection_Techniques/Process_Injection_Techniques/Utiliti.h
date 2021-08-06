@@ -29,7 +29,7 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]);
 DWORD GetIndexFromCommndLineArgument(int argc, WCHAR* argv[], CONST WCHAR ArgumentValue[]);
 DWORD GetProcessIDFromName(WCHAR* ProcName);
 BYTE* ReadDataFromFile(WCHAR* FileName);
-BOOL StartExecutableAsSuspended(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo, DWORD CreationFlag);
+BOOL StartExecutable(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo, DWORD CreationFlag);
 void ResumeProcess(HANDLE hThread);
 void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo);
 int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo, BYTE* ShellCode);
@@ -38,16 +38,14 @@ PLOADED_IMAGE  GetLoadedImage(DWORD64 dwImageBase);
 char* GetDLLName(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
 IMAGE_DATA_DIRECTORY  GetImportDirectory(PIMAGE_NT_HEADERS pFileHeader);
 PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IMAGE_DATA_DIRECTORY ImportDirectory);
-//PIMAGE_THUNK_DATA  GetILT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
-//PIMAGE_THUNK_DATA  GetIAT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
-//PIMAGE_IMPORT_BY_NAME  GetImportByName(DWORD64 dwImageBase, IMAGE_THUNK_DATA itdImportLookup);
+
 DWORD64  FindRemotePEB(HANDLE hProcess);
 PEBmy* ReadRemotePEB(HANDLE hProcess);
 PLOADED_IMAGE  ReadRemoteImage(HANDLE hProcess, LPCVOID lpImageBaseAddress);
 
 
 void PrintUsage() {
-    printf("Usage: Process_Injection_Techniques.exe <Type of injection 1-6> <Flags>\n");
+    printf("Usage: Process_Injection_Techniques.exe <Type of injection 1-9> <Flags>\n");
     printf("============================================\n");
     printf("Types Of injection and its flages\n");
     printf("============================================\n");
@@ -75,8 +73,14 @@ void PrintUsage() {
     printf("Process_Injection_Techniques.exe 7 -p <PID> -s <ShellCode Full Path>\n\n");
 
     printf("Inject PE in another process using Process Hollowing\n");
-    printf("Note:Can not inject 64 version of executable under system32\n");
+    printf("Note:Crash with some 64bit executable (like Syste32\Svchost.exe,..)\n");
     printf("Process_Injection_Techniques.exe 8 -t <Target Executable Full Path to inject> -n <Source Executable Full Path to be injected>\n\n");
+
+    printf("Inject Dll in All process that uses User32.dll(GUI Executable)\n");
+    printf("Note:Will not work when Secure Boot is On\n");
+    printf("Process_Injection_Techniques.exe 9 -d <DLL Full Path>\n\n");
+
+
 }
 
 void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
@@ -91,7 +95,7 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         break;
 
     case 2:
-        index = GetIndexFromCommndLineArgument(argc, argv, L"-p");
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
         wcscpy(ExportFunctionName, argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-e");
         wcscpy(DLLPath, argv[index]);
@@ -152,6 +156,11 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         wcscpy(ProcessName, argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-n");
         wcscpy(SourceProcessName, argv[index]);
+        break;
+
+    case 9:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(DLLPath, argv[index]);
         break;
 
     default:
@@ -236,14 +245,14 @@ BYTE* ReadDataFromFile(WCHAR* FileName) {
 }
 
 
-BOOL StartExecutableAsSuspended(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo,DWORD CreationFlag) {
+BOOL StartExecutable(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo,DWORD CreationFlag) {
     STARTUPINFO si = { 0 };
     PROCESS_INFORMATION pi = { 0 };
 
     si.cb = sizeof(si);
 
 
-    if (CreateProcessW(ExecutablePath, NULL, NULL, NULL, FALSE, CreationFlag, NULL, NULL, &si, &pi) == FALSE) {
+    if (CreateProcessW(NULL, ExecutablePath, NULL, NULL, FALSE, CreationFlag, NULL, NULL, &si, &pi) == FALSE) {
         printf("Failed to Create Process %S Error code is 0x%x\n", ExecutablePath, GetLastError());
         return NULL;
     }
@@ -405,21 +414,6 @@ PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IM
     return (PIMAGE_IMPORT_DESCRIPTOR)(pFileHeader->OptionalHeader.ImageBase +
         ImportDirectory.VirtualAddress);
 }
-
-/*PIMAGE_THUNK_DATA  GetILT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor)
-{
-    return (PIMAGE_THUNK_DATA)(dwImageBase + ImageImportDescriptor.OriginalFirstThunk);
-}
-
-PIMAGE_THUNK_DATA  GetIAT(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor)
-{
-    return (PIMAGE_THUNK_DATA)(dwImageBase + ImageImportDescriptor.FirstThunk);
-}
-
-PIMAGE_IMPORT_BY_NAME  GetImportByName(DWORD64 dwImageBase, IMAGE_THUNK_DATA itdImportLookup)
-{
-    return (PIMAGE_IMPORT_BY_NAME)(dwImageBase + itdImportLookup.u1.AddressOfData);
-}*/
 
 DWORD64  FindRemotePEB(HANDLE hProcess)
 {

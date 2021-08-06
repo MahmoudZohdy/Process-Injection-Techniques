@@ -36,9 +36,9 @@ This wil print the injection techniques that is implemented and how to use them
 
 [ ] inject using **Process Ghosting**.
 
-[ ] inject using **Image File Execution Options**.
+[x] inject using **Image File Execution Options**.
 
-[ ] inject using using **AppInit_DLLs** Registry.
+[x] inject using using **AppInit_DLLs** Registry.
 
 [ ] inject using using **AppCertDlls** Registry.
 

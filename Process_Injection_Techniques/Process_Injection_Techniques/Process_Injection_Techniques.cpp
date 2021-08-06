@@ -10,6 +10,10 @@ int wmain(int argc,WCHAR* argv[])
 {
     DWORD Result = 0;
     int InjectionType;
+
+    InjectUsingAppInit_DLLs(argv[1]);
+
+    return 0;
     /*PROCESS_INFO info;
     StartExecutableAsSuspended(argv[1], &info, CREATE_SUSPENDED);
     Result = InjectDllUsingCreateRemoteThread(info.PID, argv[2]);
@@ -108,6 +112,17 @@ int wmain(int argc,WCHAR* argv[])
             printf("Injection Succeeded\n");
         }
         break;
+
+    case 9:
+        Result = InjectUsingAppInit_DLLs(DLLPath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
     default:
         PrintUsage();
         break;

