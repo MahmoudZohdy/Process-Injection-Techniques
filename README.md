@@ -34,7 +34,7 @@ This wil print the injection techniques that is implemented and how to use them
 
 [ ] inject using **Atom Bombing**.
 
-[ ] inject using **Process Ghosting**.
+[x] inject using **Process Ghosting**.
 
 [x] inject and persist using **Image File Execution Options**.
 
@@ -46,10 +46,13 @@ This wil print the injection techniques that is implemented and how to use them
 
 ```
 NOTE:
-In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
-if you Know the issue please let me know on abdelaziz.zohdy@gmail.com.
+- In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
+- In Process Ghosting injecting 32bit in 32bit work only on 32bit version of windows.
+
+if you Know the Solution please let me know on abdelaziz.zohdy@gmail.com.
 ```
 
 # Refrence:
 [1]https://skanthak.homepage.t-online.de/appcert.html
-[2]
+[2]https://www.elastic.co/blog/process-ghosting-a-new-executable-image-tampering-attack
+[3]https://github.com/hasherezade/process_ghosting

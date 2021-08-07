@@ -11,7 +11,13 @@ int wmain(int argc,WCHAR* argv[])
     DWORD Result = 0;
     int InjectionType;
 
-    InjectUsingAppInit_DLLs(argv[1]);
+    /*Result = InjectUsingProcessGhosting(argv[1], argv[2]);
+    if (Result == -1) {
+        printf("Injection Failed\n");
+    }
+    else {
+        printf("Injection Succeeded\n");
+    }
 
     return 0;
     /*PROCESS_INFO info;
@@ -135,6 +141,16 @@ int wmain(int argc,WCHAR* argv[])
 
     case 11:
         Result = InjectUsingAppCertDlls(DLLPath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
+    case 12:
+        Result = InjectUsingProcessGhosting(ProcessName, SourceProcessName);
         if (Result == -1) {
             printf("Injection Failed\n");
         }
