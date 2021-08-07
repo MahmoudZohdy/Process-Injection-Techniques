@@ -40,7 +40,7 @@ This wil print the injection techniques that is implemented and how to use them
 
 [x] inject using using **AppInit_DLLs** Registry.
 
-[ ] inject using using **AppCertDlls** Registry.
+[x] inject using using **AppCertDlls** Registry.
 
 [ ] inject using **SHIMS**.
 
@@ -49,3 +49,7 @@ NOTE:
 In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
 if you Know the issue please let me know on abdelaziz.zohdy@gmail.com.
 ```
+
+# Refrence:
+[1]https://skanthak.homepage.t-online.de/appcert.html
+[2]

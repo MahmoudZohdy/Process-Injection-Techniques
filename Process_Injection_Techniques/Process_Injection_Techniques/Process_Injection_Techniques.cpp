@@ -133,6 +133,16 @@ int wmain(int argc,WCHAR* argv[])
         }
         break;
 
+    case 11:
+        Result = InjectUsingAppCertDlls(DLLPath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
     default:
         PrintUsage();
         break;

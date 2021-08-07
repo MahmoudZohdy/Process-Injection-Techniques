@@ -76,12 +76,16 @@ void PrintUsage() {
     printf("Note:Crash with some 64bit executable (like Syste32\Svchost.exe,..)\n");
     printf("Process_Injection_Techniques.exe 8 -t <Target Executable Full Path to inject> -n <Source Executable Full Path to be injected>\n\n");
 
-    printf("Inject Dll in All process that uses User32.dll(GUI Executable)\n");
+    printf("Inject Dll in All process that uses User32.dll(GUI Executable), Will Work also as persistence technique\n");
     printf("Note:Will not work when Secure Boot is On\n");
     printf("Process_Injection_Techniques.exe 9 -d <DLL Full Path>\n\n");
 
     printf("Execute your Process when the target process start, Will Work also as persistence technique\n");
     printf("Process_Injection_Techniques.exe 10 -n <Target Process name> -d <Your Executable Path>\n\n");
+
+    printf("Inject Dll in All process that Calls (CreateProcess*, WinExe,..) and can prevent process from creation by return Error Code, Will Work also as persistence technique\n");
+    printf("Note:The Dll Must Export CreateProcessNotify(LPCWSTR lpApplicationName, REASON enReason) as this function will be called, See Refrence[1] in the README\n");
+    printf("Process_Injection_Techniques.exe 11 -d <DLL Full Path>\n\n");
 
 
 }
@@ -171,6 +175,11 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         wcscpy(ProcessName, argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
         wcscpy(SourceProcessName, argv[index]);
+        break;
+
+    case 11:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(DLLPath, argv[index]);
         break;
 
     default:
