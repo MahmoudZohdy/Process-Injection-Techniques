@@ -54,5 +54,7 @@ if you Know the Solution please let me know on abdelaziz.zohdy@gmail.com.
 
 # Refrence:
 [1]https://skanthak.homepage.t-online.de/appcert.html
+
 [2]https://www.elastic.co/blog/process-ghosting-a-new-executable-image-tampering-attack
+
 [3]https://github.com/hasherezade/process_ghosting
