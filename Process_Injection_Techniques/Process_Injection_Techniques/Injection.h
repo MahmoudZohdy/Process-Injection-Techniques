@@ -153,7 +153,6 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName) {
 	DWORD TID = -1;
 	vector<DWORD> ThreadIds;
 
-	system("pause");
 	BYTE* ShellCode = ReadDataFromFile(ShellCodeFileName);
 	if (!ShellCode) {
 		return -1;
@@ -598,7 +597,6 @@ DWORD InjectUsingAppCertDlls(WCHAR* DLLName) {
 
 	return 0;
 }
-
 
 // can inject 64bit in 64bit, 64bit in 32bit but 32bit in 32bit work only on 32bit windows
 DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* PayloadPath) {

@@ -42,8 +42,6 @@ This wil print the injection techniques that is implemented and how to use them
 
 [x] inject using using **AppCertDlls** Registry.
 
-[ ] inject using **SHIMS**.
-
 ```
 NOTE:
 - In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
@@ -58,3 +56,5 @@ if you Know the Solution please let me know on abdelaziz.zohdy@gmail.com.
 [2]https://www.elastic.co/blog/process-ghosting-a-new-executable-image-tampering-attack
 
 [3]https://github.com/hasherezade/process_ghosting
+
+[4]https://pentestlab.blog/2020/01/13/persistence-image-file-execution-options-injection/
