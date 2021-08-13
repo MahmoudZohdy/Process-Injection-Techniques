@@ -26,7 +26,7 @@ This wil print the injection techniques that is implemented and how to use them
 
 [x] Inject using **Thread execution hijacking**.
 
-[ ] Inject Dll in remtote process using **Reflective DLL injection**.
+[x] Inject Dll in remtote process using **Reflective DLL injection**.
 
 [x] inject using **Process Hollowing**.
 
@@ -59,3 +59,9 @@ if you Know the Solution please let me know on abdelaziz.zohdy@gmail.com.
 [3]https://github.com/hasherezade/process_ghosting
 
 [4]https://pentestlab.blog/2020/01/13/persistence-image-file-execution-options-injection/
+
+[5]https://github.com/stephenfewer/ReflectiveDLLInjection
+
+[6]http://www.nynaeve.net/?p=198
+
+[7]https://www.ired.team/

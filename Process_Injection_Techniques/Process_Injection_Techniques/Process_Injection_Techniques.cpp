@@ -11,7 +11,7 @@ int wmain(int argc,WCHAR* argv[])
     DWORD Result = 0;
     int InjectionType;
 
-    /*Result = InjectUsingProcessGhosting(argv[1], argv[2]);
+    /*Result = InjectUsingReflectiveDLLInjection(_wtoi(argv[1]), argv[2]);
     if (Result == -1) {
         printf("Injection Failed\n");
     }
@@ -19,17 +19,6 @@ int wmain(int argc,WCHAR* argv[])
         printf("Injection Succeeded\n");
     }
 
-    return 0;
-    /*PROCESS_INFO info;
-    StartExecutableAsSuspended(argv[1], &info, CREATE_SUSPENDED);
-    Result = InjectDllUsingCreateRemoteThread(info.PID, argv[2]);
-    if (Result == -1) {
-        printf("Injection Failed\n");
-    }
-    else {
-        printf("Injection Succeeded\n");
-    }
-    ResumeThread(info.MainThreadHandle);
     return 0;*/
 
 	if (argc < 3) {
@@ -151,6 +140,16 @@ int wmain(int argc,WCHAR* argv[])
 
     case 12:
         Result = InjectUsingProcessGhosting(ProcessName, SourceProcessName);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
+    case 13:
+        Result = InjectUsingReflectiveDLLInjection(ProcessID, DLLPath);
         if (Result == -1) {
             printf("Injection Failed\n");
         }
