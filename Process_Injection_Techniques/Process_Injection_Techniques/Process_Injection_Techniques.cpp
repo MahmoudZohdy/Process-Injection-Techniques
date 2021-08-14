@@ -11,14 +11,14 @@ int wmain(int argc,WCHAR* argv[])
     DWORD Result = 0;
     int InjectionType;
 
-    /*Result = InjectUsingReflectiveDLLInjection(_wtoi(argv[1]), argv[2]);
+    /*Result = InjectUsingProcessGhosting(argv[1], argv[2]);  // InjectUsingProcessGhosting   InjectUsingProcessDoppelGanging
     if (Result == -1) {
         printf("Injection Failed\n");
     }
     else {
         printf("Injection Succeeded\n");
     }
-
+    system("pause");
     return 0;*/
 
 	if (argc < 3) {
@@ -150,6 +150,16 @@ int wmain(int argc,WCHAR* argv[])
 
     case 13:
         Result = InjectUsingReflectiveDLLInjection(ProcessID, DLLPath);
+        if (Result == -1) {
+            printf("Injection Failed\n");
+        }
+        else {
+            printf("Injection Succeeded\n");
+        }
+        break;
+
+    case 14:
+        Result = InjectUsingProcessDoppelGanging(ProcessName, SourceProcessName);
         if (Result == -1) {
             printf("Injection Failed\n");
         }

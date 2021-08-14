@@ -30,7 +30,7 @@ This wil print the injection techniques that is implemented and how to use them
 
 [x] inject using **Process Hollowing**.
 
-[ ] inject using **Process Doppelganging**.
+[x] inject using **Process Doppelganging**.
 
 [ ] inject using **Atom Bombing**.
 
@@ -48,6 +48,7 @@ NOTE:
 - In Process Hollowing Injection technique, it Crashes With Some 64bit process like System32\svchost.exe,... 
 - In Process Ghosting injecting 32bit in 32bit work only on 32bit version of windows.
 - In Reflective DLL injection The Dll To inject should Depend only on Kernel32.dll and ntdll.dll for stability, as they are loaded at the same base address for all processes on the system, See Refrence[6] in the README for more info
+- In case Process Doppelganging it does not work on windows 10 can't start the main thread return STATUS_ACCESS_DENIED But work fine on windows 8.1 and 7
 
 if you Know the Solution please for the Process Hollowing and Process Ghosting let me know on abdelaziz.zohdy@gmail.com.
 ```

